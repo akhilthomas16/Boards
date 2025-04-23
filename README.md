@@ -1,5 +1,5 @@
 # Boards
-Web Forum using Django
+Web Forum using only Django
 
 ## Features
 - User registration and authentication
