@@ -34,7 +34,7 @@ def _topic_to_response(topic: Topic) -> dict:
 
 
 @router.get("/trending")
-async def trending_topics():
+def trending_topics():
     """Get trending topics based on views and updates."""
     # Simple algorithm: order by views_count locally. For real prod: (views_count + (replies * 5)) over last 7 days.
     qs = Topic.objects.all().select_related('starter', 'board').order_by('-views_count', '-last_updated')[:5]
@@ -42,7 +42,7 @@ async def trending_topics():
 
 
 @router.get("/{topic_id}/similar")
-async def similar_topics(topic_id: int):
+def similar_topics(topic_id: int):
     """Find similar topics via simple tags overlap or same board."""
     try:
         topic = Topic.objects.get(pk=topic_id)
@@ -55,7 +55,7 @@ async def similar_topics(topic_id: int):
 
 
 @router.get("/board/{board_id}")
-async def list_topics(
+def list_topics(
     board_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -73,7 +73,7 @@ async def list_topics(
 
 
 @router.get("/{topic_id}", response_model=TopicResponse)
-async def get_topic(topic_id: int):
+def get_topic(topic_id: int):
     """Get a single topic and increment view count."""
     try:
         topic = Topic.objects.select_related('starter', 'board').get(pk=topic_id)
@@ -88,7 +88,7 @@ async def get_topic(topic_id: int):
 
 
 @router.post("/board/{board_id}", status_code=status.HTTP_201_CREATED)
-async def create_topic(
+def create_topic(
     board_id: int,
     data: TopicCreate,
     current_user: User = Depends(get_current_user),
@@ -115,7 +115,7 @@ async def create_topic(
 
 
 @router.post("/board/{board_id}/htmx", response_class=HTMLResponse)
-async def create_topic_htmx(
+def create_topic_htmx(
     board_id: int,
     data: TopicCreate,
     current_user: User = Depends(get_current_user),

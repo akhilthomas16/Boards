@@ -69,12 +69,12 @@ def _profile_to_response(user: User) -> dict:
 
 
 @router.get("/me", response_model=ProfileResponse)
-async def get_my_profile(current_user: User = Depends(get_current_user)):
+def get_my_profile(current_user: User = Depends(get_current_user)):
     """Get the current user's profile."""
     return _profile_to_response(current_user)
 
 @router.get("/search/users", response_model=list[ProfileResponse])
-async def search_users(q: str = ""):
+def search_users(q: str = ""):
     """Search users by username for mentions autocomplete."""
     if not q:
         return []
@@ -82,7 +82,7 @@ async def search_users(q: str = ""):
     return [_profile_to_response(u) for u in users]
 
 @router.get("/{username}", response_model=ProfileResponse)
-async def get_profile(username: str):
+def get_profile(username: str):
     """Get a user's public profile by username."""
     try:
         user = User.objects.select_related('profile').get(username=username)
@@ -92,7 +92,7 @@ async def get_profile(username: str):
 
 
 @router.patch("/me", response_model=ProfileResponse)
-async def update_profile(
+def update_profile(
     data: ProfileUpdate,
     current_user: User = Depends(get_current_user),
 ):
@@ -109,7 +109,7 @@ async def update_profile(
 
 
 @router.post("/me/avatar", response_model=ProfileResponse)
-async def upload_avatar(
+def upload_avatar(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
@@ -123,7 +123,7 @@ async def upload_avatar(
         )
 
     # Validate file size (max 2MB)
-    contents = await file.read()
+    contents = file.file.read()
     if len(contents) > 2 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large. Max 2MB.")
 

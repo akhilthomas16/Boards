@@ -4,12 +4,12 @@ Upload endpoints for generic media (e.g., images dropped into the Markdown edito
 import os
 import shutil
 import uuid
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from django.conf import settings
 from django.contrib.auth.models import User
 
 from ..auth import get_current_user
-from ..main import limiter
+from ..limiter import limiter
 
 router = APIRouter()
 
@@ -22,7 +22,8 @@ MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
 
 @router.post("/image")
 @limiter.limit("10/minute")
-async def upload_image(
+def upload_image(
+    request: Request,
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):

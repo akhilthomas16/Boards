@@ -27,7 +27,7 @@ def _board_to_response(board: Board) -> dict:
 
 
 @router.get("/")
-async def list_boards(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
+def list_boards(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
     """List all boards with pagination."""
     qs = Board.objects.all()
     paged = paginate(qs, page, page_size)
@@ -36,7 +36,7 @@ async def list_boards(page: int = Query(1, ge=1), page_size: int = Query(20, ge=
 
 
 @router.get("/{board_id}", response_model=BoardResponse)
-async def get_board(board_id: int):
+def get_board(board_id: int):
     """Get a single board by ID."""
     try:
         board = Board.objects.get(pk=board_id)
@@ -46,7 +46,7 @@ async def get_board(board_id: int):
 
 
 @router.get("/slug/{slug}", response_model=BoardResponse)
-async def get_board_by_slug(slug: str):
+def get_board_by_slug(slug: str):
     """Get a single board by slug."""
     try:
         board = Board.objects.get(slug=slug)
@@ -56,7 +56,7 @@ async def get_board_by_slug(slug: str):
 
 
 @router.post("/", response_model=BoardResponse, status_code=status.HTTP_201_CREATED)
-async def create_board(data: BoardCreate, current_user: User = Depends(get_current_user)):
+def create_board(data: BoardCreate, current_user: User = Depends(get_current_user)):
     """Create a new board (authenticated users only)."""
     if not current_user.is_staff:
         raise HTTPException(status_code=403, detail="Only staff can create boards")
@@ -68,7 +68,7 @@ async def create_board(data: BoardCreate, current_user: User = Depends(get_curre
 
 
 @router.patch("/{board_id}", response_model=BoardResponse)
-async def update_board(board_id: int, data: BoardUpdate, current_user: User = Depends(get_current_user)):
+def update_board(board_id: int, data: BoardUpdate, current_user: User = Depends(get_current_user)):
     """Update a board (staff only)."""
     if not current_user.is_staff:
         raise HTTPException(status_code=403, detail="Only staff can update boards")
@@ -87,7 +87,7 @@ async def update_board(board_id: int, data: BoardUpdate, current_user: User = De
 
 
 @router.delete("/{board_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_board(board_id: int, current_user: User = Depends(get_current_user)):
+def delete_board(board_id: int, current_user: User = Depends(get_current_user)):
     """Delete a board (staff only)."""
     if not current_user.is_staff:
         raise HTTPException(status_code=403, detail="Only staff can delete boards")

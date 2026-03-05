@@ -3,6 +3,7 @@ from wagtail.snippets.views.snippets import SnippetViewSet
 from wagtail import hooks
 from django.contrib import admin
 from django import forms
+from django.forms import Media
 from django.utils.safestring import mark_safe
 from .models import SiteSetting
 from django.contrib.auth import get_user_model
@@ -42,6 +43,7 @@ register_snippet(SiteSettingViewSet)
 
 class SiteActivityPanel:
     order = 100
+    media = Media()
 
     def render(self):
         User = get_user_model()
@@ -68,6 +70,7 @@ class SiteActivityPanel:
 
 class AnalyticsPanel:
     order = 110
+    media = Media()
 
     def render(self):
         # In a real app, you might fetch from an external API or calculate from local models.
@@ -100,6 +103,7 @@ class AnalyticsPanel:
 
 class RecentActivityPanel:
     order = 120
+    media = Media()
 
     def render(self):
         recent_topics = Topic.objects.order_by('-last_updated')[:5]

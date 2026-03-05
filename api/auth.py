@@ -1,6 +1,7 @@
 """
 JWT Authentication — token creation, validation, login/signup endpoints.
 """
+import random
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,8 +12,9 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from django.contrib.auth.models import User
 from django.conf import settings
+from django.core.cache import cache
 
-from .main import limiter
+from .limiter import limiter
 
 router = APIRouter()
 
@@ -87,7 +89,7 @@ def verify_token(token: str, token_type: str = "access") -> dict:
 # DEPENDENCIES
 # =============================================================================
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
+def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     """Get the current authenticated user from JWT token."""
     payload = verify_token(token)
     username: str = payload.get("sub")
@@ -100,12 +102,12 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> User:
     return user
 
 
-async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[User]:
+def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Optional[User]:
     """Get current user or None for optional auth endpoints."""
     if token is None:
         return None
     try:
-        return await get_current_user(token)
+        return get_current_user(token)
     except HTTPException:
         return None
 
@@ -116,7 +118,7 @@ async def get_optional_user(token: Optional[str] = Depends(oauth2_scheme)) -> Op
 
 @router.post("/token", response_model=Token)
 @limiter.limit("5/minute")
-async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
     """Login with username/password, returns JWT tokens."""
     try:
         user = User.objects.get(username=form_data.username)
@@ -133,7 +135,7 @@ async def login(request: Request, form_data: OAuth2PasswordRequestForm = Depends
 
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(body: TokenRefresh):
+def refresh_token(body: TokenRefresh):
     """Refresh an access token using a valid refresh token."""
     payload = verify_token(body.refresh_token, token_type="refresh")
     username = payload.get("sub")
@@ -147,7 +149,7 @@ async def refresh_token(body: TokenRefresh):
 
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-async def signup(request: Request, user_data: UserCreate):
+def signup(request: Request, user_data: UserCreate):
     """Create a new user account."""
     if User.objects.filter(username=user_data.username).exists():
         raise HTTPException(status_code=400, detail="Username already taken")
@@ -163,6 +165,79 @@ async def signup(request: Request, user_data: UserCreate):
 
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user's profile."""
     return UserResponse(id=current_user.id, username=current_user.username, email=current_user.email)
+
+
+# =============================================================================
+# FORGOT PASSWORD
+# =============================================================================
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+class VerifyOTPRequest(BaseModel):
+    email: str
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    email: str
+    otp: str
+    new_password: str
+
+
+def _generate_otp() -> str:
+    return f"{random.randint(100000, 999999)}"
+
+
+@router.post("/forgot-password")
+@limiter.limit("3/minute")
+def forgot_password(request: Request, data: ForgotPasswordRequest):
+    """Send a 6-digit OTP to the user's email for password reset."""
+    # Always return success to prevent email enumeration
+    try:
+        user = User.objects.get(email=data.email)
+    except User.DoesNotExist:
+        return {"message": "If an account with that email exists, a reset code has been sent."}
+
+    otp = _generate_otp()
+    cache.set(f"otp:{data.email}", otp, timeout=600)  # 10 minutes
+
+    from .tasks import send_otp_email
+    send_otp_email.delay(data.email, otp)
+
+    return {"message": "If an account with that email exists, a reset code has been sent."}
+
+
+@router.post("/verify-otp")
+@limiter.limit("5/minute")
+def verify_otp(request: Request, data: VerifyOTPRequest):
+    """Verify the OTP code is correct (optional pre-check before reset)."""
+    stored_otp = cache.get(f"otp:{data.email}")
+    if not stored_otp or stored_otp != data.otp:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+    return {"message": "Code verified"}
+
+
+@router.post("/reset-password")
+@limiter.limit("3/minute")
+def reset_password(request: Request, data: ResetPasswordRequest):
+    """Reset password using a valid OTP."""
+    stored_otp = cache.get(f"otp:{data.email}")
+    if not stored_otp or stored_otp != data.otp:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    try:
+        user = User.objects.get(email=data.email)
+    except User.DoesNotExist:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+
+    user.set_password(data.new_password)
+    user.save()
+    cache.delete(f"otp:{data.email}")
+
+    return {"message": "Password has been reset successfully"}

@@ -29,7 +29,7 @@ class NotificationResponse(BaseModel):
 
 
 @router.get("/", response_model=List[NotificationResponse])
-async def get_notifications(current_user: User = Depends(get_current_user)):
+def get_notifications(current_user: User = Depends(get_current_user)):
     """Get the latest notifications for the current user."""
     from notifications.models import Notification
     
@@ -49,7 +49,7 @@ async def get_notifications(current_user: User = Depends(get_current_user)):
 
 
 @router.post("/{notification_id}/read")
-async def mark_read(notification_id: int, current_user: User = Depends(get_current_user)):
+def mark_read(notification_id: int, current_user: User = Depends(get_current_user)):
     """Mark a notification as read."""
     from notifications.models import Notification
     try:
