@@ -1,0 +1,40 @@
+# Core
+Django>=5.2,<6.0
+python-decouple>=3.8
+
+# Database
+psycopg2-binary>=2.9
+
+# Wagtail CMS
+wagtail>=6.4,<7.0
+
+# FastAPI
+fastapi>=0.115
+uvicorn[standard]>=0.34
+python-jose[cryptography]>=3.3
+passlib[bcrypt]>=1.7
+python-multipart>=0.0.9
+
+# Elasticsearch
+elasticsearch>=8.0,<9.0
+django-elasticsearch-dsl>=8.0
+
+# Redis & Caching
+redis>=5.0
+django-redis>=5.4
+
+# Celery
+celery[redis]>=5.4
+
+# LLM Integration
+openai>=1.0
+httpx>=0.27
+
+# CORS
+django-cors-headers>=4.3
+
+# Utilities
+django-widget-tweaks>=1.5
+Pillow>=10.0
+cryptography==42.0.5
+dj-database-url==3.1.2
