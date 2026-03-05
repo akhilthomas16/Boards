@@ -84,6 +84,20 @@ def send_notification_email(user_id: int, subject: str, message: str):
         print(f"Failed to send email to user {user_id}: {e}")
 
 
+@shared_task(name="send_otp_email")
+def send_otp_email(email: str, otp: str):
+    """Send password reset OTP to user's email."""
+    from django.core.mail import send_mail
+
+    send_mail(
+        subject="Your password reset code",
+        message=f"Your password reset code is: {otp}\n\nThis code expires in 10 minutes.",
+        from_email=None,
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
 @shared_task(name="rebuild_search_index")
 def rebuild_search_index():
     """Rebuild all Elasticsearch indices."""

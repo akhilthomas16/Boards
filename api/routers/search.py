@@ -8,7 +8,7 @@ router = APIRouter()
 
 
 @router.get("/", response_model=SearchResponse)
-async def search(
+def search(
     q: str = Query(..., min_length=2, description="Search query"),
     type: str = Query("all", description="Filter by type: all, board, topic, post"),
     page: int = Query(1, ge=1),

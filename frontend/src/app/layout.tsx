@@ -27,21 +27,20 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const adsenseClientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID || "";
+  const adsenseClientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
 
   return (
     <html lang="en" className={inter.variable}>
-      <head>
-        {adsenseClientId && (
+      <head />
+      <body>
+        {adsenseClientId ? (
           <Script
             async
             src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClientId}`}
             crossOrigin="anonymous"
             strategy="afterInteractive"
           />
-        )}
-      </head>
-      <body>
+        ) : null}
         <AuthProvider>
           <WebSocketProvider>
             <Navbar />

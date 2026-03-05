@@ -17,6 +17,7 @@ from .profiles import get_user_badges
 router = APIRouter()
 
 
+def _post_to_response(post):
     # Aggregate reactions safely
     reactions = {}
     
@@ -45,7 +46,7 @@ router = APIRouter()
 
 
 @router.get("/topic/{topic_id}")
-async def list_posts(
+def list_posts(
     topic_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
@@ -63,7 +64,7 @@ async def list_posts(
 
 
 @router.post("/topic/{topic_id}", status_code=status.HTTP_201_CREATED)
-async def create_post(
+def create_post(
     topic_id: int,
     data: PostCreate,
     current_user: User = Depends(get_current_user),
@@ -98,7 +99,7 @@ async def create_post(
 
 
 @router.post("/topic/{topic_id}/htmx", response_class=HTMLResponse)
-async def create_post_htmx(
+def create_post_htmx(
     topic_id: int,
     data: PostCreate,
     current_user: User = Depends(get_current_user),
@@ -142,7 +143,7 @@ async def create_post_htmx(
 
 
 @router.patch("/{post_id}")
-async def update_post(
+def update_post(
     post_id: int,
     data: PostUpdate,
     current_user: User = Depends(get_current_user),
@@ -165,7 +166,7 @@ async def update_post(
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(
+def delete_post(
     post_id: int,
     current_user: User = Depends(get_current_user),
 ):
@@ -186,7 +187,7 @@ class ReactionRequest(BaseModel):
     emoji: str
 
 @router.post("/{post_id}/react")
-async def toggle_reaction(
+def toggle_reaction(
     post_id: int,
     data: ReactionRequest,
     current_user: User = Depends(get_current_user),

@@ -12,17 +12,14 @@ django.setup()
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from decouple import config, Csv
 import os
 
+from .limiter import limiter
 from .routers import boards, topics, posts, search, content, profiles, notifications, upload
 from .auth import router as auth_router
-
-# Rate limiter
-limiter = Limiter(key_func=get_remote_address)
 
 app = FastAPI(
     title="Boards Forum API",
@@ -62,5 +59,5 @@ if os.path.exists(media_dir):
 
 
 @app.get("/api/health", tags=["Health"])
-async def health_check():
+def health_check():
     return {"status": "ok", "service": "boards-api"}

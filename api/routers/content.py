@@ -9,14 +9,14 @@ from ..auth import get_current_user
 from ..schemas import ContentGenerateRequest, ContentGenerateResponse
 from ..tasks import generate_content_task
 
-from ..main import limiter
+from ..limiter import limiter
 
 router = APIRouter()
 
 
 @router.post("/generate", response_model=ContentGenerateResponse)
 @limiter.limit("5/minute")
-async def generate_content(
+def generate_content(
     request: Request,
     data: ContentGenerateRequest,
     current_user: User = Depends(get_current_user),
@@ -66,7 +66,7 @@ async def generate_content(
 
 @router.post("/suggest-reply")
 @limiter.limit("3/minute")
-async def suggest_reply(
+def suggest_reply(
     request: Request,
     topic_id: int,
     current_user: User = Depends(get_current_user),
@@ -88,12 +88,12 @@ async def suggest_reply(
         prompt="Suggest a thoughtful reply to this forum topic discussion.",
         context=context,
     )
-    return await generate_content(request, current_user)
+    return generate_content(request, current_user)
 
 
 @router.post("/summarize-topic")
 @limiter.limit("3/minute")
-async def summarize_topic(
+def summarize_topic(
     request: Request,
     topic_id: int,
     current_user: User = Depends(get_current_user),
@@ -114,4 +114,4 @@ async def summarize_topic(
         prompt="Summarize the key points and conclusions from this forum discussion.",
         context=context,
     )
-    return await generate_content(request, current_user)
+    return generate_content(request, current_user)
