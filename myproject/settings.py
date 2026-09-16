@@ -144,6 +144,10 @@ ELASTICSEARCH_DSL = {
     },
 }
 
+# Writes must not depend on Elasticsearch being reachable. The default
+# RealTimeSignalProcessor bulk-indexes inside every Board/Topic/Post save.
+ELASTICSEARCH_DSL_AUTOSYNC = config('ELASTICSEARCH_DSL_AUTOSYNC', default=False, cast=bool)
+
 
 # =============================================================================
 # CELERY
