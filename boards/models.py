@@ -36,6 +36,7 @@ class Topic(models.Model):
     views_count = models.PositiveIntegerField(default=0)
     is_pinned = models.BooleanField(default=False)
     is_locked = models.BooleanField(default=False)
+    tags = models.CharField(max_length=255, blank=True, default='')
 
     class Meta:
         ordering = ['-is_pinned', '-last_updated']

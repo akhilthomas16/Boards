@@ -50,6 +50,7 @@ class BoardResponse(BaseModel):
 class TopicCreate(BaseModel):
     subject: str
     message: str  # first post content
+    tags: Optional[str] = None
 
 class TopicResponse(BaseModel):
     id: int
@@ -62,6 +63,7 @@ class TopicResponse(BaseModel):
     replies_count: int = 0
     is_pinned: bool
     is_locked: bool
+    tags: str = ""
     last_updated: datetime
 
     class Config:
