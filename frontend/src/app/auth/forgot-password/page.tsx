@@ -3,8 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
+import api from '@/lib/api';
 
 type Step = 'email' | 'otp' | 'done';
 
@@ -25,13 +24,7 @@ export default function ForgotPasswordPage() {
         setLoading(true);
 
         try {
-            const res = await fetch(`${API_BASE}/api/auth/forgot-password`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Request failed');
+            const data = await api.post<{ message: string }>('/api/auth/forgot-password', { email });
             setMessage(data.message);
             setStep('otp');
         } catch (err: unknown) {
@@ -56,13 +49,7 @@ export default function ForgotPasswordPage() {
 
         setLoading(true);
         try {
-            const res = await fetch(`${API_BASE}/api/auth/reset-password`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email, otp, new_password: newPassword }),
-            });
-            const data = await res.json();
-            if (!res.ok) throw new Error(data.detail || 'Reset failed');
+            await api.post('/api/auth/reset-password', { email, otp, new_password: newPassword });
             setStep('done');
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Reset failed');

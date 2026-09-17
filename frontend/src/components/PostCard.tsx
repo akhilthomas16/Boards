@@ -3,7 +3,8 @@
  */
 import MarkdownRenderer from './MarkdownRenderer';
 import { useState } from 'react';
-import { getTokens } from '@/lib/api';
+import api from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 interface PostCardProps {
     id: number;
@@ -20,26 +21,17 @@ export default function PostCard({
     id, message, createdBy, createdAt, updatedAt, isFirst = false, onQuote, initialReactions = {},
 }: PostCardProps) {
     const [reactions, setReactions] = useState<Record<string, number>>(initialReactions);
+    const { user } = useAuth();
 
     const handleReact = async (emoji: string) => {
-        const tokens = getTokens();
-        if (!tokens) return;
+        if (!user) return;
 
         // Optimistic UI update
         const currentCount = reactions[emoji] || 0;
         setReactions({ ...reactions, [emoji]: currentCount + 1 });
 
         try {
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-            const res = await fetch(`${apiUrl}/api/posts/${id}/react`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${tokens.access}`
-                },
-                body: JSON.stringify({ emoji }),
-            });
-            const data = await res.json();
+            const data = await api.post<{ action: string }>(`/api/posts/${id}/react`, { emoji });
             if (data.action === 'removed') {
                 setReactions(prev => ({ ...prev, [emoji]: Math.max(0, (prev[emoji] || 1) - 2) })); // Compensate optimistic
             }

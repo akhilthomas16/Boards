@@ -1,21 +1,22 @@
 """
 User profile API endpoints — view profile, update profile, upload avatar.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from django.contrib.auth.models import User
 from django.core.files.base import ContentFile
 from pydantic import BaseModel
 from typing import Optional
 
 from ..auth import get_current_user
+from ..limiter import limiter
 
 router = APIRouter()
 
 
-class ProfileResponse(BaseModel):
+class PublicProfileResponse(BaseModel):
+    """What anyone can see. FastAPI drops every field not declared here, including email."""
     user_id: int
     username: str
-    email: str
     bio: str
     avatar_url: Optional[str]
     location: str
@@ -28,6 +29,11 @@ class ProfileResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ProfileResponse(PublicProfileResponse):
+    """The owner's own view."""
+    email: str
 
 
 class ProfileUpdate(BaseModel):
@@ -73,15 +79,14 @@ def get_my_profile(current_user: User = Depends(get_current_user)):
     """Get the current user's profile."""
     return _profile_to_response(current_user)
 
-@router.get("/search/users", response_model=list[ProfileResponse])
-def search_users(q: str = ""):
+@router.get("/search/users", response_model=list[PublicProfileResponse])
+@limiter.limit("30/minute")
+def search_users(request: Request, q: str = Query(..., min_length=2)):
     """Search users by username for mentions autocomplete."""
-    if not q:
-        return []
     users = User.objects.filter(username__icontains=q).select_related('profile')[:5]
     return [_profile_to_response(u) for u in users]
 
-@router.get("/{username}", response_model=ProfileResponse)
+@router.get("/{username}", response_model=PublicProfileResponse)
 def get_profile(username: str):
     """Get a user's public profile by username."""
     try:

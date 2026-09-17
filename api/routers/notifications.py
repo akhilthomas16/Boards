@@ -2,6 +2,7 @@
 Notifications router — handles WebSockets and notification CRUD.
 """
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
+from starlette.concurrency import run_in_threadpool
 import asyncio
 import redis.asyncio as aioredis
 from django.conf import settings
@@ -10,7 +11,7 @@ from typing import List
 from datetime import datetime
 import json
 
-from ..auth import verify_token, get_current_user
+from ..auth import ACCESS_COOKIE, get_current_user, user_from_token
 from django.contrib.auth.models import User
 
 router = APIRouter()
@@ -62,28 +63,31 @@ def mark_read(notification_id: int, current_user: User = Depends(get_current_use
 
 
 @router.websocket("/ws")
-async def websocket_notifications(websocket: WebSocket, token: str):
+async def websocket_notifications(websocket: WebSocket):
     """
-    WebSocket endpoint for real-time notifications.
-    Client connects with: wss://api/ws?token=<jwt>
+    WebSocket endpoint for real-time notifications, authenticated by the access-token cookie.
+    Auth and Origin are checked before accept(), so a bad handshake is rejected with 403.
     """
+    if websocket.headers.get("origin") not in settings.CORS_ALLOWED_ORIGINS:
+        await websocket.close(code=1008)
+        return
+    try:
+        user = await run_in_threadpool(user_from_token, websocket.cookies.get(ACCESS_COOKIE))
+    except HTTPException:
+        await websocket.close(code=1008)
+        return
+
+    # ponytail: auth is checked at connect only; a user deactivated mid-connection keeps receiving
+    # their own notifications until the socket reconnects.
     await websocket.accept()
     pubsub = None
     r = None
-    
+    channel_name = f"user_{user.id}_notifications"
+
     try:
-        # Authenticate token manually (cannot use standard Depends in WS easily without throwing 403 on handshake)
-        payload = verify_token(token)
-        user_id = payload.get("user_id")
-        
-        if not user_id:
-            await websocket.close(code=1008)
-            return
-            
         # Connect to Redis asynchronously
         r = aioredis.from_url(settings.CACHES['default']['LOCATION'])
         pubsub = r.pubsub()
-        channel_name = f"user_{user_id}_notifications"
         await pubsub.subscribe(channel_name)
         
         # Listen for messages

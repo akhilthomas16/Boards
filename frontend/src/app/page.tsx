@@ -5,6 +5,7 @@ import BoardCard from '@/components/BoardCard';
 import AdBanner from '@/components/AdBanner';
 import Pagination from '@/components/Pagination';
 import Link from 'next/link';
+import { API_BASE } from '@/lib/api';
 
 interface Board {
   id: number;
@@ -35,8 +36,7 @@ interface Topic {
 }
 
 async function getBoards(page: string): Promise<BoardsResponse> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-  const res = await fetch(`${apiUrl}/api/boards/?page=${page}`, {
+  const res = await fetch(`${API_BASE}/api/boards/?page=${page}`, {
     next: { revalidate: 60 },
   });
   if (!res.ok) {
@@ -46,9 +46,8 @@ async function getBoards(page: string): Promise<BoardsResponse> {
 }
 
 async function getTrendingTopics(): Promise<Topic[]> {
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
   try {
-    const res = await fetch(`${apiUrl}/api/topics/trending`, { next: { revalidate: 60 } });
+    const res = await fetch(`${API_BASE}/api/topics/trending`, { next: { revalidate: 60 } });
     if (res.ok) return res.json();
   } catch (e) {
     console.error('Failed fetching trending topics', e);

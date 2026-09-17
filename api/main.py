@@ -14,8 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from decouple import config, Csv
-import os
+from django.conf import settings
 
 from .limiter import limiter
 from .routers import boards, topics, posts, search, content, profiles, notifications, upload
@@ -35,7 +34,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000', cast=Csv()),
+    allow_origins=settings.CORS_ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -151,6 +151,10 @@ JWT_ALGORITHM = config('JWT_ALGORITHM', default='HS256')
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = config('JWT_ACCESS_TOKEN_EXPIRE_MINUTES', default=30, cast=int)
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = config('JWT_REFRESH_TOKEN_EXPIRE_DAYS', default=7, cast=int)
 
+# Browser origins allowed to call the API with cookies (CORS + WebSocket Origin check).
+# Must be same-site with the API host, or SameSite=Lax cookies are never sent.
+CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS', default='http://localhost:3000', cast=Csv())
+
 # Never run with DEBUG off on the dev defaults above or the env.sample placeholders.
 if not DEBUG:
     for _name in ('SECRET_KEY', 'JWT_SECRET_KEY', 'FERNET_KEY'):
