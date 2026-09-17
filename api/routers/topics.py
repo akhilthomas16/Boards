@@ -6,7 +6,6 @@ from operator import or_
 
 from django.db.models import Q
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import HTMLResponse
 from django.contrib.auth.models import User
 
 from boards.models import Board, Topic, Post
@@ -140,42 +139,3 @@ def create_topic(
     )
     invalidate_cache("topics")
     return _topic_to_response(topic)
-
-
-@router.post("/board/{board_id}/htmx", response_class=HTMLResponse)
-def create_topic_htmx(
-    board_id: int,
-    data: TopicCreate,
-    current_user: User = Depends(get_current_user),
-):
-    """HTMX endpoint — create topic and return HTML partial."""
-    try:
-        board = Board.objects.get(pk=board_id)
-    except Board.DoesNotExist:
-        return HTMLResponse(
-            '<div class="alert alert-danger">Board not found</div>',
-            status_code=404,
-        )
-
-    topic = Topic.objects.create(
-        subject=data.subject,
-        board=board,
-        starter=current_user,
-    )
-    Post.objects.create(
-        message=data.message,
-        topic=topic,
-        created_by=current_user,
-    )
-    invalidate_cache("topics")
-
-    # Return HTML partial for HTMX swap
-    return HTMLResponse(f"""
-        <tr class="fade-in">
-            <td><a href="/topics/{topic.id}">{topic.subject}</a></td>
-            <td>{current_user.username}</td>
-            <td>0</td>
-            <td>0</td>
-            <td>just now</td>
-        </tr>
-    """)
