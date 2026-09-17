@@ -1,6 +1,6 @@
 """
 Django settings for hash_out project.
-Full-stack configuration: PostgreSQL, Redis, Elasticsearch, Wagtail, Celery, CORS.
+Full-stack configuration: PostgreSQL, Redis, Elasticsearch, Celery.
 """
 
 import os
@@ -27,21 +27,6 @@ FERNET_KEY = config('FERNET_KEY', default='')
 # =============================================================================
 
 INSTALLED_APPS = [
-    # Wagtail (must be before django.contrib.admin)
-    'wagtail.contrib.forms',
-    'wagtail.contrib.redirects',
-    'wagtail.embeds',
-    'wagtail.sites',
-    'wagtail.users',
-    'wagtail.snippets',
-    'wagtail.documents',
-    'wagtail.images',
-    'wagtail.search',
-    'wagtail.admin',
-    'wagtail',
-    'modelcluster',
-    'taggit',
-
     # Django
     'django.contrib.admin',
     'django.contrib.auth',
@@ -51,8 +36,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Third-party
-    'corsheaders',
-    'widget_tweaks',
     'django_elasticsearch_dsl',
 
     # Project apps
@@ -68,7 +51,6 @@ INSTALLED_APPS = [
 # =============================================================================
 
 MIDDLEWARE = [
-    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -76,7 +58,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'wagtail.contrib.redirects.middleware.RedirectMiddleware',
 ]
 
 ROOT_URLCONF = 'hash_out.urls'
@@ -84,9 +65,7 @@ ROOT_URLCONF = 'hash_out.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [
-            os.path.join(BASE_DIR, 'templates')
-        ],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -181,18 +160,6 @@ if not DEBUG:
 
 
 # =============================================================================
-# CORS (for Next.js frontend)
-# =============================================================================
-
-CORS_ALLOWED_ORIGINS = config(
-    'CORS_ALLOWED_ORIGINS',
-    default='http://localhost:3000',
-    cast=Csv()
-)
-CORS_ALLOW_CREDENTIALS = True
-
-
-# =============================================================================
 # LLM
 # =============================================================================
 
@@ -222,10 +189,6 @@ AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
-LOGIN_URL = 'login'
-LOGIN_REDIRECT_URL = 'home'
-LOGOUT_REDIRECT_URL = 'home'
-
 
 # =============================================================================
 # INTERNATIONALIZATION
@@ -243,25 +206,9 @@ USE_TZ = True
 
 STATIC_URL = '/static/'
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
-STATICFILES_DIRS = [
-    os.path.join(BASE_DIR, 'static'),
-]
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
-
-
-# =============================================================================
-# WAGTAIL
-# =============================================================================
-
-WAGTAIL_SITE_NAME = config('WAGTAIL_SITE_NAME', default='Hash Out CMS')
-WAGTAILADMIN_BASE_URL = 'http://localhost:8000'
-WAGTAILSEARCH_BACKENDS = {
-    'default': {
-        'BACKEND': 'wagtail.search.backends.database',
-    }
-}
 
 
 # =============================================================================

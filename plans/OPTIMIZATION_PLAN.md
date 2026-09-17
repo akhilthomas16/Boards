@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phase 0 ✅ done on `feat/inital-bug-fix` — installs and imports from a clean clone, all topic endpoints return 200, writes no longer need Elasticsearch, nothing sensitive is tracked. **Next: Phase 1.**
+**Status:** Phase 0 ✅ done (merged, PR #5). Phase 1 ✅ done on `feat/phase-1-one-ui-stack` — Next.js is the only UI, Wagtail is gone, `/admin/` is the moderation console, auth has HTTP tests. **Next: Phase 2.**
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 0 (`7616072`). Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 1. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -15,7 +15,7 @@
 | TypeScript/React | 2,694 LOC |
 | FastAPI layer | 1,683 LOC, 25 endpoints |
 | Django templates + vendored static | 381 LOC + 432 KB |
-| Tests | 497 LOC legacy, **all of it testing code this plan deletes** · 7 new DB-free tests since Phase 0 |
+| Tests | ~~497 LOC legacy, all of it testing code this plan deletes~~ ✅ deleted in Phase 1 · 21 tests now (7 DB-free, 14 HTTP auth tests against Postgres) |
 | Tracked junk | ~~`.env`, `db.sqlite3` (1 MB), 67 `.pyc` files, no root `.gitignore`~~ ✅ resolved in Phase 0 |
 | Services declared | 6 (postgres, redis, elasticsearch, django, fastapi, celery, frontend) |
 | Services actually needed | 3 (postgres, redis, + the two app processes) |
@@ -24,7 +24,7 @@
 
 1. ✅ *Fixed in Phase 0 (`9079f33`).* **`slowapi` is imported and not declared.** `api/limiter.py:1` and `api/main.py:15-16` import it; `requirements.txt` never lists it. A clean install or `docker compose up` dies with `ModuleNotFoundError` before serving one request.
 2. ✅ *Fixed in Phase 0 (`6f37d32`).* **`Topic.tags` does not exist.** `api/routers/topics.py:31` reads `topic.tags` and `:106` writes it; `boards/models.py:30-49` has no such field and no migration adds one. Every topic endpoint — trending on the home page, topic detail, board topic list, topic creation — raises `AttributeError` → 500.
-3. **The project carries three UI stacks and pays for all three.** Django templates + a rumour of HTMX + Next.js. Only Next.js works. The Django forum views are still routed and one of them (`boards/views.py:14-32`) is an **unauthenticated POST that creates topics attributed to `User.objects.first()`** — usually the superuser.
+3. ✅ *Fixed in Phase 1.* **The project carries three UI stacks and pays for all three.** Django templates + a rumour of HTMX + Next.js. Only Next.js works. The Django forum views are still routed and one of them (`boards/views.py:14-32`) is an **unauthenticated POST that creates topics attributed to `User.objects.first()`** — usually the superuser.
 
 **The target architecture** — all three independently-written roadmaps converged on it:
 
@@ -39,10 +39,10 @@ I checked these myself rather than pass them on:
 - **The committed `.env` holds placeholders**, not live secrets: `django-insecure-change-me-in-production-503-92o4`, `change-me-jwt-secret-key-in-production`, `your-openai-api-key-here`, dev Postgres creds. 
 - **The committed `db.sqlite3` contains 0 users** (`select count(*) from auth_user` → 0), so no password hashes leaked.
 - Therefore this is **not a credential emergency**. It is a real defect for two reasons: the tracked `.env` means the *next* real key gets committed automatically, and `hash_out/settings.py:21` hardcodes a **working Fernet key** as its default — which makes the CMS "encrypted secret" feature decryptable by anyone with the repo. That one is a genuine broken control.
-- **The venv is one level up**, at `/home/akhil/code/test/myproject/venv` (Python 3.12.5). It already had `slowapi 0.1.9` installed, which is why the missing declaration never showed locally. Bare `python` on this machine resolves to an unrelated project's venv — call the interpreter by full path.
+- **The venv is one level up**, at `/home/akhil/code/test/hash_out/venv` (Python 3.12.5). It already had `slowapi 0.1.9` installed, which is why the missing declaration never showed locally. Bare `python` on this machine resolves to an unrelated project's venv — call the interpreter by full path.
 - **The migration graph is clean.** `manage.py makemigrations --check --dry-run` → `No changes detected`, against a `boards_db` with 61 tables and all migrations applied. The `pending migrations` commit message (`d9f6ecf`) is stale — ignore it. (`Topic.tags` is consistently absent from model *and* database, which is exactly why the API 500s.)
 - ✅ *Resolved in Phase 0 (`658b21b`).* **Every write used to fail on this machine:** `Board.objects.create(...)` raised `AuthenticationException(401)`. The local Elasticsearch 8.19 requires auth, `settings.py` supplies none, and `django-elasticsearch-dsl`'s default `RealTimeSignalProcessor` bulk-indexed inside every save.
-- **`boards_user` has no `CREATEDB` privilege.** Django's test runner and `pytest-django` both need to create `test_boards_db`, so no database-backed test can run until a Postgres superuser runs `ALTER ROLE boards_user CREATEDB;`. This blocks Phase 1's replacement tests.
+- ✅ *Granted 2026-09-17.* **`boards_user` had no `CREATEDB` privilege.** Django's test runner and `pytest-django` both need to create `test_boards_db`, so no database-backed test can run until a Postgres superuser runs `ALTER ROLE boards_user CREATEDB;`. This blocks Phase 1's replacement tests.
 - **A placeholder `OPENAI_API_KEY` is exported in the editor's process environment** (not in any shell profile — most likely the editor loaded the old `.env` at startup). Real environment variables beat `.env`, so restart the editor after editing `.env` or the AI endpoints keep sending the stale value.
 
 ---
@@ -95,40 +95,47 @@ docker compose up --build                             ⏸ not run — pulls and 
 
 ---
 
-## Phase 1 — One UI stack: delete the Django SSR forum and HTMX (1–2 days)
+## Phase 1 — One UI stack: delete the Django SSR forum, HTMX and Wagtail ✅ Done
 
-Almost entirely `git rm`. Three prerequisites must land **first**, because deleting the Django UI removes capability that exists nowhere else.
+**Completed 2026-09-17** on `feat/phase-1-one-ui-stack`. 1,564 lines deleted, 265 added, across 72 files.
 
-### Prerequisites (blocking)
+| Commit | What landed |
+|---|---|
+| `feat(api): enforce password validators, add change-password endpoint and auth tests` | `check_password_strength()` runs `AUTH_PASSWORD_VALIDATORS` on signup and reset-password (replaces the ad-hoc `len < 8`), 400 with every failed rule joined into `detail`. `POST /api/auth/change-password` (old + new, `get_current_user`, `5/minute`). Unused passlib `CryptContext` removed. `api/tests/test_auth.py`: 14 tests over `TestClient` — signup, duplicate username/email, 4 weak passwords, token pair shape, wrong password, refresh rejects an access token, `/me` rejects a refresh token and an unknown user, identical forgot-password message, reset and change-password run the validators |
+| `refactor(api): remove HTMX fragment endpoints` | `POST /api/topics/board/{id}/htmx` and `POST /api/posts/topic/{id}/htmx` gone with their `HTMLResponse` imports. 43 routes |
+| `refactor: delete Django template UI and Wagtail, make /admin/ the moderation console` | `templates/`, `static/`, board/account views, forms, urls, template tags and their test suites, `hash_out/asgi.py`, `cms/wagtail_hooks.py`. Django routes only `/admin/`. Settings lose Wagtail (13 apps, middleware, config), `corsheaders`, `widget_tweaks`, `STATICFILES_DIRS`, `LOGIN_*`. `cms` keeps only `SiteSetting`, registered in `/admin/` with the secret-masking form; `cms/migrations/0001` rewritten without the page models or the `wagtailcore` dependency. `/admin/` registers `Topic` (pin/lock editable in the list), `Post`, `Reaction`, `Notification`. Requirements drop `wagtail`, `django-cors-headers`, `django-widget-tweaks`, `passlib`; `httpx` → `requirements-dev.txt` |
+| `chore(frontend): drop htmx.org, starter svgs, generated service worker and missing icons` | `npm uninstall htmx.org`; 5 starter SVGs deleted; `sw.js`/`workbox-*.js` untracked and gitignored; the `icons` array (two 404s) removed from `manifest.json`; HTMX comments fixed |
 
-1. **Password validation.** `accounts/forms.py` (Django's `UserCreationForm`) is today the *only* path that runs `AUTH_PASSWORD_VALIDATORS`. `api/auth.py` signup accepts any string. Add `validate_password()` to `api/auth.py` signup (before `create_user` at `:159`) and to `reset_password` (replacing the ad-hoc `len < 8` at `:236`), converting `ValidationError` → HTTP 400.
-2. **`POST /api/auth/change-password`.** The Django templates serve a working password-change page; `api/auth.py` has no such route (only the OTP reset flow). Add it: old + new password, `Depends(get_current_user)`, `validate_password`, `@limiter.limit("5/minute")`.
-3. **Replacement tests.** Grant `CREATEDB` to `boards_user` first — these tests need a database. `pytest.ini` already exists (Phase 0); add `api/tests/test_auth.py` before deleting `accounts/tests/`. Port the cases that are still meaningful: duplicate username (`auth.py:154`), duplicate email (`:156`), access+refresh pair shape (`:131-134`), refresh rejects an access token (the type check at `:77-78`), identical forgot-password message for known and unknown emails.
+### Where it departed from the original plan
 
-### The deletion commit (these are mutually dependent — one commit)
+- **Wagtail went entirely**, not just the page models (decided 2026-09-17). Nothing outside the Wagtail dashboard read `SiteSetting`, the table had 0 rows, and the 4 pages rendered nowhere. Dropping it also removed the `mark_safe` XSS in `wagtail_hooks.py` (Phase 3) and ~20 transitive packages.
+- **`cms/migrations/0001_initial.py` was rewritten, not followed by a `DeleteModel` migration.** A `DeleteModel` still needs `wagtailcore` installed to load `0001`. Safe because no populated deployment exists. The recorded migration name is unchanged, so existing databases need no `--fake`.
+- **`Notification` is registered in `notifications/admin.py`**, which was filled in rather than deleted. `accounts/admin.py` was deleted as planned; `UserProfile` is not registered.
+- **`TEMPLATES['DIRS']` emptied and `LOGIN_URL`/`LOGIN_REDIRECT_URL`/`LOGOUT_REDIRECT_URL` removed** — they named templates and URL names that no longer exist. `TEMPLATES` itself stays for the admin.
+- **The auth tests use `django_db(transaction=True)`.** `TestClient` runs sync endpoints in worker threads with their own connections, which can't see rows inside a test-wrapping transaction. They also swap in `LocMemCache` and disable the rate limiter.
+- **Change-password does not revoke existing JWTs** — tokens stay valid until they expire. Filed under Phase 2's `jti` work.
+
+### Local environment changes (not in git)
+
+- **Database:** 44 tables dropped (`wagtail*`, `taggit*`, the 4 `cms_*page` tables), 198 `django_migrations` rows and the stale content types removed. Backed up first with `pg_dump -Fc` (session scratchpad, `wagtail-tables-backup.dump`). **Other clones:** run the same cleanup, or recreate the database and `migrate`.
+- **venv:** `wagtail`, `django-taggit`, `django-modelcluster`, `django-cors-headers`, `django-widget-tweaks`, `passlib` and their now-orphaned dependencies uninstalled; `pip install --dry-run -r requirements-dev.txt` installs nothing and `pip check` is clean.
+- **`.env`:** `WAGTAIL_SITE_NAME` is now unused; delete it.
+
+### Exit criteria
 
 ```
-git rm -r templates/ static/ \
-          boards/views.py boards/urls.py boards/forms.py boards/templatetags/ \
-          accounts/views.py accounts/forms.py \
-          accounts/tests/ boards/tests/test_views.py boards/tests/test_templatetags.py \
-          notifications/views.py notifications/tests.py \
-          accounts/admin.py notifications/admin.py \
-          hash_out/asgi.py
+grep -rn 'render(' --include='*.py' .                  ✅ empty (wagtail_hooks.py deleted too)
+git ls-files | grep -E '^templates/|^static/'           ✅ empty
+git grep -i 'wagtail|htmx|corsheaders|passlib'          ✅ empty outside plans/
+pytest                                                  ✅ 21 passed
+manage.py check · makemigrations --check · migrate --check   ✅ clean
+python -c "import api.main"                             ✅ 43 routes
+/admin/ as superuser: index, Topic, Post, Reaction, Notification, SiteSetting   ✅ 200
+SiteSetting secret via /admin/: encrypted at rest, masked in form, untouched mask keeps value   ✅
+/ · /login/ · /signup/ · /cms-admin/ · /pages/          ✅ 404
+API smoke: health, boards, trending, topic, board topics, search   ✅ 200
+tsc --noEmit · manifest.json · docker compose config    ✅
 ```
-
-Plus, in the same commit:
-
-- `hash_out/urls.py:22` — remove `path('', include('boards.urls'))`. Django then serves only `/admin/`, `/cms-admin/`, `/documents/`. (Confirm no proxy or healthcheck hits `/`.)
-- `hash_out/settings.py` — delete `STATICFILES_DIRS` (`:234-236`), `widget_tweaks` from `INSTALLED_APPS` (`:54`), and `corsheaders` (`:53`, `:70`, `:175-180`) — Django no longer serves anything cross-origin. Keep `STATIC_URL`/`STATIC_ROOT`: the admin and Wagtail admin still need `collectstatic`.
-- `requirements.txt` — drop `django-widget-tweaks`, `django-cors-headers`, `passlib[bcrypt]` (the `CryptContext` at `api/auth.py:11,22` is constructed and never used — Django's hashers do all hashing), `httpx` (zero runtime imports — move it to `requirements-dev.txt`, where FastAPI's `TestClient` needs it).
-- **HTMX eradication**, all three layers: delete `api/routers/topics.py:117-153` and `api/routers/posts.py:101-142` (HTML-fragment endpoints in a JSON API, referenced nowhere, interpolating user text into markup unescaped) and the `HTMLResponse` imports at `topics.py:7`/`posts.py:7`; `npm uninstall htmx.org`; fix the three comments that claim an HTMX architecture (`boards/[id]/page.tsx:2,134`, `topics/[id]/page.tsx:2`); strip the HTMX claims from `README.md:9,24,95,96`.
-- **Wagtail pages.** `cms/models.py:15-70` defines four `Page` models with **no templates anywhere** — `/pages/...` raises `TemplateDoesNotExist`. Delete them + the `DeleteModel` migration + `hash_out/urls.py:25`. Keep `SiteSetting` (registered as a snippet by `cms/wagtail_hooks.py:32-40`) and keep Wagtail installed only if the settings/snippet console is wanted; otherwise this is the moment to drop `wagtail` from `requirements.txt` and the 13 Wagtail entries from `INSTALLED_APPS`.
-- `pytest.ini` — drop the `ponytail:` comment explaining the `testpaths` exclusion; the suites it excluded are gone.
-- `boards/admin.py` — register `Topic`, `Post`, `Reaction` and `notifications.Notification`. ~15 lines, and it is the *entire* interim moderation story: `is_pinned`/`is_locked` are writable from nowhere in `api/`.
-- Free cleanup: `git rm frontend/public/{next,vercel,file,globe,window}.svg`; `git rm --cached frontend/public/sw.js frontend/public/workbox-*.js` and gitignore them; delete the `icons` array in `manifest.json:9-20` (it advertises two 404s, which blocks the install prompt anyway).
-
-**Exit criteria:** `grep -rn 'render(' --include='*.py' .` returns nothing outside `cms/wagtail_hooks.py`; `git ls-files | grep -E '^templates/|^static/'` is empty; the new `api/tests/` suite is green.
 
 ---
 
@@ -139,6 +146,7 @@ Plus, in the same commit:
 - `api/auth.py:92-102` `get_current_user` — resolve on the immutable claim and enforce activity: `User.objects.filter(pk=payload['user_id'], is_active=True).first()`, 401 on `None`. Fixes two defects at once: the ban bypass, and identity resolution through the **mutable** `username` (`sub`) when `user_id` is already in the token.
 - `api/auth.py:119-134` `login` — 401 when `not user.is_active`. `api/auth.py:137-147` `refresh` — re-load the user and 401 if missing or inactive; today it re-mints a pair without ever touching the database.
 - `/refresh` has **no rate limit** and no `request: Request` param — add both. Then add a `jti` claim, store `jti → user_id` in Redis for the token TTL, consume-and-rotate on refresh, and revoke the family on reuse; check the denylist in `verify_token`.
+- **Change-password must revoke the token family** (added in Phase 1 without revocation) — once `jti` storage exists, bump a per-user token generation on password change and reject older tokens.
 - **OTP flow** (`api/auth.py:190-241`) — one shared helper for `verify_otp` and `reset_password`: `secrets.randbelow(900000)+100000` instead of `random.randint` (a 6-digit code from a non-cryptographic PRNG), store `{"otp":…, "attempts":0}`, compare with `hmac.compare_digest`, delete after 5 failures. Note `verify_otp:213-220` does not consume the code, so a successful verify leaves it live for the full 10 minutes.
 - **The reset email is never sent.** `api/auth.py:208` calls `send_otp_email.delay(...)`, but `hash_out/celery.py:11` calls `autodiscover_tasks()` with no packages and `api` is not in `INSTALLED_APPS` — the task is unregistered, so the enqueue is a silent drop. Either `app.conf.imports = ('api.tasks',)` or (see Phase 4) call it synchronously.
 - `api/limiter.py:4` — `Limiter(key_func=..., storage_uri=settings.REDIS_URL)`. In-memory storage means the `5/minute` login limit resets on restart and does not apply across workers.
@@ -175,7 +183,7 @@ Small local edits. No refactors.
 - `WebSocketProvider.tsx:54` gates desktop notifications on `Notification.permission === 'granted'` and nothing ever calls `requestPermission()` — the whole branch is unreachable. Either request permission on a user gesture or delete the branch.
 - `notifications.py:64-107` — the bare `pubsub.listen()` loop never notices a client disconnect, and `channel_name` is referenced in `finally` while only assigned after `verify_token` succeeds → `NameError` on an invalid token. Use `asyncio.wait` over `pubsub.get_message(timeout=1)` + `websocket.receive_text()`, catch `WebSocketDisconnect` explicitly, initialize `channel_name = None`, and switch `print` → `logging`.
 - Accessibility: `id`/`htmlFor` pairs at `boards/[id]/page.tsx:142-162` and `profile/[username]/page.tsx:192-220`, `aria-label` on the message textarea, `aria-expanded`/`aria-haspopup` plus outside-click and Escape handling on the three `Navbar` dropdowns.
-- `cms/wagtail_hooks.py:92,96` — `monthly_revenue` and `active_users` go through `mark_safe` unescaped (the escaping precedent is right there at `:112`). Editor-to-admin stored XSS.
+- ~~`cms/wagtail_hooks.py:92,96` — `monthly_revenue` and `active_users` go through `mark_safe` unescaped. Editor-to-admin stored XSS.~~ ✅ File deleted with Wagtail in Phase 1.
 
 **Exit criteria:** a 12-item manual pass — upload an image and see it render; anonymous profile response has no email; board pagination works; a reply bumps the topic to the top; `evil.html` with a spoofed content type gets a 400.
 
@@ -268,19 +276,19 @@ Note: `api/auth.py:105-112` `get_optional_user` is dead code that **cannot work*
 Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 432 KB of vendored assets, 4 services, 7 Python packages, 4 npm packages.**
 
 **Delete outright**
-- `templates/` (15 files, 381 LOC) · `static/` (jQuery 88 KB + Bootstrap 308 KB + 3 project files) · `boards/views.py` · `boards/urls.py` · `boards/forms.py` · `boards/templatetags/` · `accounts/views.py` · `accounts/forms.py` · `hash_out/asgi.py` (unused — `wsgi` is the entrypoint) · `notifications/views.py` + `notifications/tests.py` + `accounts/admin.py` + `notifications/admin.py` (empty scaffolds)
-- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · `api/deps.py:19-32` + 10 `invalidate_cache()` calls · `api/auth.py:11,22` (unused `CryptContext`) + `:105-112` (`get_optional_user`) · `api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments) · `api/tasks.py:7-30,101-107` (ES tasks)
-- `boards/documents.py` + the ES config · `hash_out/celery.py` + the Celery config · `cms/models.py:15-70` (template-less Page models)
-- `accounts/tests/` + `boards/tests/test_views.py` + `boards/tests/test_templatetags.py` — 497 LOC testing only deleted code. **Replace before deleting** (Phase 1 prerequisite 3).
-- `frontend/public/{next,vercel,file,globe,window}.svg` · dead imports: `api/main.py:18` (`os` twice), ~~`topics.py:4`~~ ✅, `topics.py:12`, `posts.py:12`, `notifications.py:5,11`, `search.py:4`, ~~`content.py:10`~~ ✅, `deps.py:6,10`, `cms/models.py:10`, ~~`docker-compose.yml:2` (obsolete `version:`)~~ ✅
+- ✅ *Phase 1:* ~~`templates/` · `static/` · `boards/views.py` · `boards/urls.py` · `boards/forms.py` · `boards/templatetags/` · `accounts/views.py` · `accounts/forms.py` · `hash_out/asgi.py` · `notifications/views.py` + `notifications/tests.py` + `accounts/admin.py`~~ (`notifications/admin.py` now registers `Notification`)
+- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · `api/deps.py:19-32` + 10 `invalidate_cache()` calls · ~~`api/auth.py:11,22` (unused `CryptContext`)~~ ✅ + `:105-112` (`get_optional_user`) · ~~`api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments)~~ ✅ · `api/tasks.py:7-30,101-107` (ES tasks)
+- `boards/documents.py` + the ES config · `hash_out/celery.py` + the Celery config · ~~`cms/models.py:15-70` (template-less Page models)~~ ✅ with all of Wagtail
+- ~~`accounts/tests/` + `boards/tests/` — 497 LOC testing only deleted code~~ ✅ replaced by `api/tests/test_auth.py`
+- ~~`frontend/public/{next,vercel,file,globe,window}.svg`~~ ✅ · dead imports: `api/main.py:18` (`os` twice), ~~`topics.py:4`~~ ✅, `topics.py:12`, `posts.py:12`, `notifications.py:5,11`, `search.py:4`, ~~`content.py:10`~~ ✅, `deps.py:6,10`, ~~`cms/models.py:10`~~ ✅, ~~`docker-compose.yml:2` (obsolete `version:`)~~ ✅
 
-**Untrack (keep on disk)** — ~~`.env`, `db.sqlite3`, 67 `__pycache__` entries~~ ✅ Phase 0 · still to do: `frontend/public/sw.js`, `frontend/public/workbox-*.js`
+**Untrack (keep on disk)** — ~~`.env`, `db.sqlite3`, 67 `__pycache__` entries~~ ✅ Phase 0 · ~~`frontend/public/sw.js`, `frontend/public/workbox-*.js`~~ ✅ Phase 1
 
-**Drop from requirements.txt** — `elasticsearch`, `django-elasticsearch-dsl`, `celery[redis]`, `django-widget-tweaks`, `django-cors-headers`, `passlib[bcrypt]`, `httpx` (→ `requirements-dev.txt`), and `wagtail` **only if** the CMS console goes too.
+**Drop from requirements.txt** — `elasticsearch`, `django-elasticsearch-dsl`, `celery[redis]` · ✅ Phase 1: ~~`django-widget-tweaks`, `django-cors-headers`, `passlib[bcrypt]`, `httpx` (→ `requirements-dev.txt`), `wagtail`~~
 
-**Drop from package.json** — `htmx.org` (zero imports), `@ducanh2912/next-pwa` (can never regenerate under Turbopack), `tailwindcss` + `@tailwindcss/postcss` (imported, zero classes used)
+**Drop from package.json** — ~~`htmx.org`~~ ✅, `@ducanh2912/next-pwa` (can never regenerate under Turbopack), `tailwindcss` + `@tailwindcss/postcss` (imported, zero classes used)
 
-**Keep despite zero import hits** — `Pillow` (needed by Wagtail images and the upload verify), `psycopg2-binary` (the DB driver, loaded by name), `python-multipart` (FastAPI `UploadFile`), `taggit` + `modelcluster` (Wagtail internals). Add a one-line comment next to each so the next sweep doesn't delete them.
+**Keep despite zero import hits** — `Pillow` (`UserProfile.avatar` and the upload verify; commented in `requirements.txt`), `psycopg2-binary` (the DB driver, loaded by name), `python-multipart` (FastAPI `UploadFile`).
 
 **Deliberately keep**
 - `Topic.slug` — currently written and never read, but it is the right URL shape later. If you truly want it gone, also remove `topics.py:22` and `schemas.py:57` or every topic response breaks.
@@ -292,7 +300,7 @@ Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 43
 
 ```
 Phase 0  ½ d   boot + hygiene        ✅ done 2026-09-17
-Phase 1  1-2 d one UI stack          ← needs 3 prerequisites first
+Phase 1  1-2 d one UI stack          ✅ done 2026-09-17
 Phase 2  2-3 d auth + is_active      ← the real security hole
 Phase 3  1-2 d visible bug sweep     ← independent of 4-7, can interleave
 Phase 4  1-2 d 6 services → 3
@@ -306,13 +314,13 @@ Phase 7  2-3 d production + CI
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.
-2. Password validation + change-password endpoint + replacement tests **before** deleting the Django UI (Phase 1) — it is currently the only path for all three.
+2. ~~Password validation + change-password endpoint + replacement tests before deleting the Django UI.~~ ✅ Satisfied in Phase 1.
 3. ~~`api/__init__.py` truncation before any Celery/tasks work — importing `api.tasks` otherwise drags in a second `django.setup()`.~~ ✅ Satisfied (`b97e10c`).
 4. Fix `migration 0003` before any deployment has more than one board.
 5. Fix `api/schemas.py` before generating TypeScript types.
 6. Fix the N+1 queries before adding indexes — they cut far more latency, and the indexes are easier to pick once the query shapes are final.
 7. Client-fetch consolidation before the httpOnly-cookie switch — nine call sites bypass `lib/api.ts` today and would silently keep working with no credentials.
-8. `CREATEDB` on `boards_user` before Phase 1's replacement tests — without it no database-backed test can run locally.
+8. ~~`CREATEDB` on `boards_user` before Phase 1's replacement tests.~~ ✅ Satisfied.
 
 ---
 
@@ -322,4 +330,4 @@ Eight parallel reviewers (api, django, frontend, security, removal, infra, compl
 
 **Treat with care:** a 0-withdrawal rate means the verify pass was better at correcting than at killing. The claims I re-checked by hand and can vouch for directly: the missing `slowapi` declaration, the absent `Topic.tags` (`AttributeError` reproduced on a model instance), the duplicate app in `api/__init__.py`, the broken `content.py` internal call, the `.env`/`db.sqlite3` tracking with no `.gitignore`, the placeholder (not live) secret values, the 0-row committed database, the hardcoded working `FERNET_KEY`, the unauthenticated `boards/views.py` write path, the absent websocket-token guard, and the Elasticsearch 401 that blocks every write (reproduced via `Board.objects.create`).
 
-**Executed against the real environment** (venv at `/home/akhil/code/test/myproject/venv`): `import api.main` (44 routes); `makemigrations --check --dry-run` (clean); after Phase 0, `pytest` (7 passed), the endpoint smoke test (health, trending, topic, similar, boards, search, `/auth/me` — all 200), the AI endpoints (503 with no key, 502 upstream, 404 unknown topic), the startup check in all three cases (`DEBUG=False` on dev keys refuses to start; real keys start; `DEBUG=True` starts), and `docker compose config`. **Not executed:** migration replay from zero (the `0003` slug defect is read from source), any `docker compose up`, and any production build — verify those as you reach them.
+**Executed against the real environment** (venv at `/home/akhil/code/test/hash_out/venv`): `import api.main` (44 routes); `makemigrations --check --dry-run` (clean); after Phase 0, `pytest` (7 passed), the endpoint smoke test (health, trending, topic, similar, boards, search, `/auth/me` — all 200), the AI endpoints (503 with no key, 502 upstream, 404 unknown topic), the startup check in all three cases (`DEBUG=False` on dev keys refuses to start; real keys start; `DEBUG=True` starts), and `docker compose config`. **Not executed:** migration replay from zero (the `0003` slug defect is read from source), any `docker compose up`, and any production build — verify those as you reach them.

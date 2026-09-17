@@ -1,5 +1,5 @@
 /**
- * Board topics page — list topics with HTMX new topic form.
+ * Board topics page — list topics with a new topic form.
  */
 'use client';
 
@@ -131,7 +131,7 @@ export default function BoardTopicsPage() {
 
                     {error && <div className="alert alert-error">{error}</div>}
 
-                    {/* HTMX-style New Topic Form */}
+                    {/* New Topic Form */}
                     {showForm && (
                         <div className="form-card fade-in" style={{ marginBottom: 24 }}>
                             <h3 style={{ fontSize: '1.125rem', fontWeight: 600, marginBottom: 20 }}>

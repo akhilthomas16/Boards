@@ -8,18 +8,16 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
 from django.conf import settings
 from django.core.cache import cache
+from django.core.exceptions import ValidationError
 
 from .limiter import limiter
 
 router = APIRouter()
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # OAuth2 scheme
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
@@ -49,6 +47,10 @@ class UserResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
 
 
 # =============================================================================
@@ -83,6 +85,14 @@ def verify_token(token: str, token_type: str = "access") -> dict:
             detail="Could not validate credentials",
             headers={"WWW-Authenticate": "Bearer"},
         )
+
+
+def check_password_strength(password: str, user: User) -> None:
+    """Run AUTH_PASSWORD_VALIDATORS; 400 with every failed rule."""
+    try:
+        validate_password(password, user)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=" ".join(e.messages))
 
 
 # =============================================================================
@@ -155,6 +165,7 @@ def signup(request: Request, user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Username already taken")
     if User.objects.filter(email=user_data.email).exists():
         raise HTTPException(status_code=400, detail="Email already registered")
+    check_password_strength(user_data.password, User(username=user_data.username, email=user_data.email))
 
     user = User.objects.create_user(
         username=user_data.username,
@@ -168,6 +179,23 @@ def signup(request: Request, user_data: UserCreate):
 def get_me(current_user: User = Depends(get_current_user)):
     """Get current authenticated user's profile."""
     return UserResponse(id=current_user.id, username=current_user.username, email=current_user.email)
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+def change_password(
+    request: Request,
+    data: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """Change the current user's password. Existing JWTs stay valid until they expire."""
+    if not current_user.check_password(data.old_password):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+    check_password_strength(data.new_password, current_user)
+
+    current_user.set_password(data.new_password)
+    current_user.save()
+    return {"message": "Password changed successfully"}
 
 
 # =============================================================================
@@ -233,8 +261,7 @@ def reset_password(request: Request, data: ResetPasswordRequest):
     except User.DoesNotExist:
         raise HTTPException(status_code=400, detail="Invalid or expired code")
 
-    if len(data.new_password) < 8:
-        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    check_password_strength(data.new_password, user)
 
     user.set_password(data.new_password)
     user.save()

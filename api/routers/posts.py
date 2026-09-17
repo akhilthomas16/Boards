@@ -4,7 +4,6 @@ Post API endpoints — list, create, update, delete posts within topics.
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
-from fastapi.responses import HTMLResponse
 from django.contrib.auth.models import User
 
 from boards.models import Topic, Post
@@ -96,50 +95,6 @@ def create_post(
         
     invalidate_cache("posts")
     return _post_to_response(post)
-
-
-@router.post("/topic/{topic_id}/htmx", response_class=HTMLResponse)
-def create_post_htmx(
-    topic_id: int,
-    data: PostCreate,
-    current_user: User = Depends(get_current_user),
-):
-    """HTMX endpoint — create post and return HTML partial."""
-    try:
-        topic = Topic.objects.get(pk=topic_id)
-    except Topic.DoesNotExist:
-        return HTMLResponse('<div class="alert alert-danger">Topic not found</div>', status_code=404)
-
-    if topic.is_locked:
-        return HTMLResponse('<div class="alert alert-warning">This topic is locked</div>', status_code=403)
-
-    post = Post.objects.create(
-        message=data.message,
-        topic=topic,
-        created_by=current_user,
-    )
-    
-    # Notify topic starter
-    if topic.starter != current_user:
-        from notifications.models import Notification
-        Notification.objects.create(
-            recipient=topic.starter,
-            actor=current_user,
-            message=f"replied to your topic: {topic.subject[:30]}",
-            link=f"/topics/{topic.id}#post-{post.id}"
-        )
-        
-    invalidate_cache("posts")
-
-    return HTMLResponse(f"""
-        <div class="post-card fade-in" id="post-{post.id}">
-            <div class="post-header">
-                <strong>{current_user.username}</strong>
-                <span class="text-muted">just now</span>
-            </div>
-            <div class="post-body">{post.message}</div>
-        </div>
-    """)
 
 
 @router.patch("/{post_id}")
