@@ -6,9 +6,9 @@ Full-stack discussion forum built with **Django + FastAPI + Next.js** and a prem
 
 | Layer | Technology | Port |
 |-------|-----------|------|
-| **Frontend** | Next.js (App Router) + HTMX | `3000` |
+| **Frontend** | Next.js (App Router) | `3000` |
 | **API** | FastAPI + JWT Auth | `8001` |
-| **CMS/Admin** | Django + Wagtail | `8000` |
+| **Admin** | Django admin (moderation, site settings) | `8000` |
 | **Database** | PostgreSQL | `5432` |
 | **Cache** | Redis | `6379` |
 | **Search** | Elasticsearch | `9200` |
@@ -21,9 +21,7 @@ Full-stack discussion forum built with **Django + FastAPI + Next.js** and a prem
 - 🔐 JWT authentication (login, signup, refresh tokens)
 - 📋 Board/topic/post CRUD with FastAPI REST endpoints
 - 🔍 Elasticsearch-powered search with ORM fallback
-- 💬 HTMX-style inline forms for topic/post creation
 - ✨ AI content generation (reply suggestions, topic summaries)
-- 📰 Wagtail CMS for static content pages
 - ⚡ Redis caching for API responses
 - 📅 Celery background tasks (indexing, emails, LLM)
 - 💰 Google AdSense integration (banner, sidebar, infeed)
@@ -61,7 +59,7 @@ cp frontend/env.sample frontend/.env.local
 python manage.py migrate
 python manage.py createsuperuser
 
-# Start Django/Wagtail (port 8000)
+# Start Django admin (port 8000)
 python manage.py runserver
 
 # Start FastAPI (port 8001)
@@ -79,7 +77,6 @@ cd frontend && npm run dev
 - **Frontend**: http://localhost:3000
 - **API Docs**: http://localhost:8001/docs
 - **Django Admin**: http://localhost:8000/admin/
-- **Wagtail CMS**: http://localhost:8000/cms-admin/
 
 ## Project Structure
 
@@ -93,15 +90,15 @@ hash_out/
 │   ├── tasks.py            # Celery background tasks
 │   └── routers/
 │       ├── boards.py       # Board CRUD
-│       ├── topics.py       # Topic CRUD + HTMX
-│       ├── posts.py        # Post CRUD + HTMX
+│       ├── topics.py       # Topic CRUD
+│       ├── posts.py        # Post CRUD
 │       ├── search.py       # Elasticsearch search
 │       └── content.py      # LLM content generation
 ├── accounts/               # Django auth app
 ├── boards/                 # Django boards app
 │   ├── models.py           # Board, Topic, Post models
 │   └── documents.py        # Elasticsearch DSL documents
-├── cms/                    # Wagtail CMS pages
+├── cms/                    # Encrypted site settings
 ├── frontend/               # Next.js frontend
 │   └── src/
 │       ├── app/            # App Router pages
@@ -110,7 +107,6 @@ hash_out/
 ├── hash_out/               # Django project config
 │   ├── settings.py         # All service configuration
 │   └── celery.py           # Celery app
-├── templates/              # Django templates (legacy)
 └── requirements.txt        # Python dependencies
 ```
 

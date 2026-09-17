@@ -1,3 +1,3 @@
 """
-Wagtail CMS app — content pages managed via Wagtail admin.
+Site settings app — key/value configuration with optional encryption.
 """
