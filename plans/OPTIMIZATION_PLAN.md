@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phase 0 ✅ done (merged, PR #5). Phase 1 ✅ done on `feat/phase-1-one-ui-stack` — Next.js is the only UI, Wagtail is gone, `/admin/` is the moderation console, auth has HTTP tests. **Next: Phase 2.**
+**Status:** Phases 0 and 1 ✅ merged (PR #5, #6). Phase 2 ✅ done on `feat/phase-2-auth` — tokens live in httpOnly cookies, a deactivated user is locked out everywhere, refresh tokens rotate with reuse detection. **Next: Phase 3** (or 4 → 7 for the fast path).
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 1. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 2. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -139,23 +139,51 @@ tsc --noEmit · manifest.json · docker compose config    ✅
 
 ---
 
-## Phase 2 — One auth system, and a ban that actually bans (2–3 days)
+## Phase 2 — One auth system, and a ban that actually bans ✅ Done
 
-`grep -rn is_active api/` returns **zero hits**. A user deactivated in `/admin/` keeps full API access and can still mint fresh tokens forever.
+**Completed 2026-09-17** on `feat/phase-2-auth`. 508 lines added, 405 deleted, across 19 files.
 
-- `api/auth.py:92-102` `get_current_user` — resolve on the immutable claim and enforce activity: `User.objects.filter(pk=payload['user_id'], is_active=True).first()`, 401 on `None`. Fixes two defects at once: the ban bypass, and identity resolution through the **mutable** `username` (`sub`) when `user_id` is already in the token.
-- `api/auth.py:119-134` `login` — 401 when `not user.is_active`. `api/auth.py:137-147` `refresh` — re-load the user and 401 if missing or inactive; today it re-mints a pair without ever touching the database.
-- `/refresh` has **no rate limit** and no `request: Request` param — add both. Then add a `jti` claim, store `jti → user_id` in Redis for the token TTL, consume-and-rotate on refresh, and revoke the family on reuse; check the denylist in `verify_token`.
-- **Change-password must revoke the token family** (added in Phase 1 without revocation) — once `jti` storage exists, bump a per-user token generation on password change and reject older tokens.
-- **OTP flow** (`api/auth.py:190-241`) — one shared helper for `verify_otp` and `reset_password`: `secrets.randbelow(900000)+100000` instead of `random.randint` (a 6-digit code from a non-cryptographic PRNG), store `{"otp":…, "attempts":0}`, compare with `hmac.compare_digest`, delete after 5 failures. Note `verify_otp:213-220` does not consume the code, so a successful verify leaves it live for the full 10 minutes.
-- **The reset email is never sent.** `api/auth.py:208` calls `send_otp_email.delay(...)`, but `hash_out/celery.py:11` calls `autodiscover_tasks()` with no packages and `api` is not in `INSTALLED_APPS` — the task is unregistered, so the enqueue is a silent drop. Either `app.conf.imports = ('api.tasks',)` or (see Phase 4) call it synchronously.
-- `api/limiter.py:4` — `Limiter(key_func=..., storage_uri=settings.REDIS_URL)`. In-memory storage means the `5/minute` login limit resets on restart and does not apply across workers.
-- `api/auth.py` — `UserCreate.email` is a bare `str` while `EmailStr` sits imported and unused at `:12`. Use `EmailStr` (add `email-validator` to `requirements.txt` — Pydantic raises at import without it), add `constr(min_length=8)` for the password, normalize the email to lowercase before the uniqueness check.
-- **Token custody.** Both JWTs live in `localStorage` (`frontend/src/lib/api.ts:11-27`) on pages that render user-authored markdown and load a third-party AdSense script. Move custody server-side: Next route handlers (`app/api/auth/login|refresh|logout/route.ts`) that proxy FastAPI and set `httpOnly` + `Secure` + `SameSite=Lax` cookies; `apiFetch` switches to `credentials:'include'` against a same-origin proxy. **Prerequisite:** consolidate the nine raw `fetch` calls that bypass `lib/api.ts` today (`auth.tsx:47`, `WebSocketProvider.tsx:36,79`, `PostCard.tsx:38`, `MarkdownEditor.tsx:134`, `profile/[username]/page.tsx`, `forgot-password/page.tsx`, both `layout.tsx` files) — export `API_BASE` and add `postForm(endpoint, URLSearchParams)` / `postMultipart(endpoint, FormData)` helpers first.
-- Once cookies land: `api/routers/notifications.py:65` reads the cookie from `websocket.cookies` instead of a query-string token, and `close()` happens **before** `accept()` so an unauthenticated handshake is rejected cleanly. Drop `token=` from `WebSocketProvider.tsx:45`.
-- `api/routers/profiles.py` — `get_profile` (`:84`) and `search_users` (`:76`) are **unauthenticated and return every matched user's email**. Add a `PublicProfileResponse` without `email` and use it as their `response_model` (FastAPI filters unknown fields, so this is a two-line fix); keep the email-bearing schema on `/me` only. Add `Query(..., min_length=2)` and a rate limit to the search.
+| Commit | What landed |
+|---|---|
+| `feat(api): back rate limits with redis` | `Limiter(storage_uri=settings.REDIS_URL)` — limits survive restarts and apply across workers |
+| `feat(auth): httpOnly cookie sessions with rotation, revocation and is_active checks` | **Cookies:** `/token` sets `access_token` (`Path=/api`) and `refresh_token` (`Path=/api/auth`), both `HttpOnly`, `SameSite=Lax`, `Secure` unless `DEBUG`; no token ever appears in a response body. New `POST /api/auth/logout`. **Identity:** tokens resolve by `user_id` with `is_active=True`; login uses `authenticate()` (rejects inactive users, constant-time for unknown usernames). **Revocation:** a `pwd` claim (first 16 chars of `get_session_auth_hash()`) kills every token on password change or reset; `fam`/`jti` claims + Redis give single-use refresh tokens, and a replay after a 30 s grace window revokes the family. **OTP:** `secrets`, `{otp, user_id}` in Redis, atomic `cache.incr` attempt counter, `hmac.compare_digest`, burned after 5 wrong guesses, email sent via `BackgroundTasks` calling the task function directly. **Signup:** `EmailStr` (`email-validator`), lowercased, case-insensitive uniqueness. **Profiles:** `PublicProfileResponse` (no `email`) on `GET /{username}` and search; search needs `q` ≥ 2 chars, `30/minute`. **WebSocket:** cookie auth and an `Origin` allowlist, both checked before `accept()`. **Frontend:** `lib/api.ts` exports `API_BASE`, `postForm`, `postMultipart`, sends `credentials: 'include'`, and de-duplicates refresh; all nine raw `fetch`/`getTokens` call sites moved onto it; `WebSocketProvider` connects only when logged in and reconnects on login/logout. 36 tests |
 
-**Exit criteria:** `is_active=False` in `/admin/` → 401 on `/me`, `/token` and `/refresh` and a closed WebSocket; a reused refresh token is rejected and its family revoked; 5 wrong OTPs lock the code; `grep -rn 'localStorage\|Bearer ' frontend/src` returns nothing; anonymous `GET /api/profiles/<username>` contains no `email`.
+### Where it departed from the original plan
+
+- **No Next.js route handlers or same-origin proxy.** FastAPI sets the cookies itself and the browser calls it directly with `credentials: 'include'`. Tested first: a Next rewrite proxies HTTP and even WebSocket upgrades fine, but it **does not add `X-Forwarded-For`** — it only passes through whatever the client sent. Behind it, FastAPI sees one IP for every user (every rate limit becomes global) or trusts a spoofable header. Calling the API directly keeps real client IPs and needs no proxy code. **Constraint this creates:** the frontend and API must be **same-site** (`localhost:3000` → `localhost:8001`, or `app.example.com` → `api.example.com`), or `SameSite=Lax` cookies are never sent. Documented in `env.sample` and `lib/api.ts`.
+- **Password-change revocation uses a fingerprint claim, not a per-user generation counter in Redis.** Stateless, and it covers reset-password too. Change-password re-issues cookies for the current session.
+- **Refresh reuse has a 30-second grace window.** Without it, two tabs refreshing together would read as token theft and log the user out everywhere. The client also de-duplicates refreshes within a tab.
+- **The OTP email is sent from a `BackgroundTasks` job**, not synchronously, so a known email isn't measurably slower than an unknown one (the plan's synchronous call would have been a timing oracle for account enumeration). Celery's config is untouched until Phase 4.
+- **`constr(min_length=8)` skipped:** `MinimumLengthValidator` already enforces it through `check_password_strength`.
+- **WebSocket `Origin` check added** (not in the plan) — cookie-authenticated sockets are otherwise open to cross-site WebSocket hijacking from same-site origins. `CORS_ALLOWED_ORIGINS` moved back into `settings.py` as the one source for CORS and this check.
+- **`get_optional_user` deleted now** (planned for Phase 6) — it depended on the removed `OAuth2PasswordBearer`.
+- **`/verify-otp` counts as a guess** toward the 5-attempt limit.
+- **Also done early from Phase 3:** `PostCard` reactions gated on `useAuth().user` (rollback still open); `WebSocketProvider` depends on `user` and skips anonymous visitors (backoff reconnect still open); `notifications.py` no longer has the `channel_name` `NameError` (disconnect detection and `print` → `logging` still open).
+
+### Known ceilings
+
+- **Anonymous visitors cost two requests per page load** (`/me` 401, then `/refresh` 401) — JS can't see whether a refresh cookie exists. A non-httpOnly `logged_in` hint cookie would skip the second one.
+- **Auth is checked when the WebSocket connects**, not during the connection. A user deactivated mid-connection keeps receiving their own notifications until it reconnects.
+- **Swagger's "Authorize" button no longer applies.** Use "Try it out" on `POST /api/auth/token` at `:8001/docs`; the cookie then rides along on later calls.
+- **Rate limits key on the socket peer.** Behind a reverse proxy (Phase 7), run uvicorn with `--forwarded-allow-ips` set to the proxy.
+
+### Exit criteria
+
+```
+is_active=False → 401 on /me, /token, /refresh; WebSocket rejected     ✅ tests + real browser
+reused refresh token rejected, family revoked (and grace-window race not)  ✅ tests
+5 wrong OTPs burn the code                                              ✅ tests
+grep -rn 'localStorage\|Bearer ' frontend/src                           ✅ empty
+anonymous GET /api/profiles/<username> has no email                     ✅ tests
+pytest                                                                  ✅ 36 passed
+mutation check: removing is_active, family revocation, Origin check, public schema,
+  OTP attempt limit or pwd fingerprint each fails a test                ✅ 6/6 caught
+headless Chrome against next dev + uvicorn: login sets httpOnly cookies, nothing in
+  localStorage/document.cookie, socket opens without ?token= and receives a notification,
+  reload keeps the session, deleted access cookie → silent refresh with rotation,
+  UI logout clears cookies, deactivated user shown logged out and refused login   ✅
+manage.py check · makemigrations --check · tsc --noEmit · docker compose config · pip check   ✅
+```
 
 ---
 
@@ -176,16 +204,16 @@ Small local edits. No refactors.
 
 **Frontend bugs**
 - `boards/[id]/page.tsx:73` — the effect omits `page` from its deps, so **board pagination is completely dead**. Add `page`, and `setLoading(true)` as the effect's first statement (otherwise `.finally` leaves it false forever).
-- `WebSocketProvider.tsx:31` — `if (!tokens) return` is dead code: `getTokens()` always returns an object. Anonymous visitors open a socket with `token=null`; logged-in users never rebuild it on login. Use `if (!tokens.access) return`, put `user` in the dep array, add backoff reconnect guarded by a `cancelled` flag.
+- `WebSocketProvider.tsx` — ~~dead `if (!tokens)` check, anonymous sockets, no rebuild on login~~ ✅ Phase 2. Still open: backoff reconnect guarded by a `cancelled` flag.
 - `topics/[id]/page.tsx:166` — `split('\\n')` produces a literal `\n` in quoted blockquotes. Use a real newline.
-- `PostCard.tsx:30-46` — the optimistic reaction count never rolls back on failure and fires for anonymous users. Gate on `useAuth().user` and revert in the failure branch.
+- `PostCard.tsx` — the optimistic reaction count never rolls back on failure. Revert in the failure branch. (~~fires for anonymous users~~ ✅ gated in Phase 2.)
 - `Navbar.tsx:121-123` links to `/settings`, a route that does not exist. Delete the link now; build the page in Phase 5.
 - `WebSocketProvider.tsx:54` gates desktop notifications on `Notification.permission === 'granted'` and nothing ever calls `requestPermission()` — the whole branch is unreachable. Either request permission on a user gesture or delete the branch.
-- `notifications.py:64-107` — the bare `pubsub.listen()` loop never notices a client disconnect, and `channel_name` is referenced in `finally` while only assigned after `verify_token` succeeds → `NameError` on an invalid token. Use `asyncio.wait` over `pubsub.get_message(timeout=1)` + `websocket.receive_text()`, catch `WebSocketDisconnect` explicitly, initialize `channel_name = None`, and switch `print` → `logging`.
+- `notifications.py:64-107` — the bare `pubsub.listen()` loop never notices a client disconnect, (~~`channel_name` `NameError` on an invalid token~~ ✅ Phase 2). Use `asyncio.wait` over `pubsub.get_message(timeout=1)` + `websocket.receive_text()`, catch `WebSocketDisconnect` explicitly, and switch `print` → `logging`.
 - Accessibility: `id`/`htmlFor` pairs at `boards/[id]/page.tsx:142-162` and `profile/[username]/page.tsx:192-220`, `aria-label` on the message textarea, `aria-expanded`/`aria-haspopup` plus outside-click and Escape handling on the three `Navbar` dropdowns.
 - ~~`cms/wagtail_hooks.py:92,96` — `monthly_revenue` and `active_users` go through `mark_safe` unescaped. Editor-to-admin stored XSS.~~ ✅ File deleted with Wagtail in Phase 1.
 
-**Exit criteria:** a 12-item manual pass — upload an image and see it render; anonymous profile response has no email; board pagination works; a reply bumps the topic to the top; `evil.html` with a spoofed content type gets a 400.
+**Exit criteria:** a 12-item manual pass — upload an image and see it render; board pagination works; a reply bumps the topic to the top; `evil.html` with a spoofed content type gets a 400.
 
 ---
 
@@ -198,8 +226,8 @@ Both heavy services are either dead or actively harmful.
 - Rewrite `_search_orm` as the only path: one combined result list, `total` from the same filtered sets that get sliced, `type` as a `Literal['all','board','topic','post']`, correct per-type totals.
 - *If you want real search later:* Postgres full-text (`SearchVector` + a GIN index) costs no new service.
 
-**Celery — delete it.** Its single `.delay()` call is already a silent no-op (unregistered task, see Phase 2), and five of the six tasks have no caller at all.
-- `api/auth.py:208` → call `send_otp_email(data.email, otp)` directly inside try/except with `logging.exception`, returning the same enumeration-safe message either way. A 6-digit code the user is waiting for should not be queued anyway.
+**Celery — delete it.** Nothing enqueues a task any more: Phase 2 replaced the one `.delay()` call (a silent no-op — the task was never registered) with a direct call.
+- ~~`api/auth.py:208` → call `send_otp_email` directly~~ ✅ Phase 2 (from `BackgroundTasks`). Move `send_otp_email` out of `api/tasks.py` into a plain function when the rest of that file goes.
 - Delete `hash_out/celery.py`, `hash_out/__init__.py:6-8`, the `CELERY_*` block (`settings.py:147-156`), `celery[redis]`, and the worker service.
 - Add the email settings the OTP path has always assumed: `DEFAULT_FROM_EMAIL` (currently unset while `tasks.py` passes `from_email=None`), `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`. Document them in `env.sample` — Phase 0 deliberately left them out because nothing read them yet.
 - *Bring Celery back when* a task is genuinely slow and nobody is waiting on it (digest emails, bulk reindex). Not for one OTP.
@@ -245,7 +273,7 @@ Every item here is capability that exists on one side of the boundary and nowher
 | **Profile display** | `reputation_score`, `badges` returned | Never rendered |
 | **AdSense** | `AdBanner` reads 4 env vars, documented in `frontend/env.sample` (Phase 0) | Unset values still render a visible "AdSense Slot: …" placeholder. Real account → set them; no account → delete `AdBanner` |
 
-Note: `api/auth.py:105-112` `get_optional_user` is dead code that **cannot work** — `OAuth2PasswordBearer` defaults to `auto_error=True`, so the token is never `None` and it raises instead of returning `None`. Delete it and add a second scheme with `auto_error=False` where optional auth is genuinely needed (reactions, public profiles).
+Note: ~~`get_optional_user`~~ ✅ deleted in Phase 2. Where optional auth is genuinely needed (reactions, public profiles), depend on `access_cookie` (already `auto_error=False`) and return `None` instead of raising.
 
 ---
 
@@ -277,7 +305,7 @@ Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 43
 
 **Delete outright**
 - ✅ *Phase 1:* ~~`templates/` · `static/` · `boards/views.py` · `boards/urls.py` · `boards/forms.py` · `boards/templatetags/` · `accounts/views.py` · `accounts/forms.py` · `hash_out/asgi.py` · `notifications/views.py` + `notifications/tests.py` + `accounts/admin.py`~~ (`notifications/admin.py` now registers `Notification`)
-- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · `api/deps.py:19-32` + 10 `invalidate_cache()` calls · ~~`api/auth.py:11,22` (unused `CryptContext`)~~ ✅ + `:105-112` (`get_optional_user`) · ~~`api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments)~~ ✅ · `api/tasks.py:7-30,101-107` (ES tasks)
+- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · `api/deps.py:19-32` + 10 `invalidate_cache()` calls · ~~`api/auth.py:11,22` (unused `CryptContext`)~~ ✅ + ~~`:105-112` (`get_optional_user`)~~ ✅ Phase 2 · ~~`api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments)~~ ✅ · `api/tasks.py:7-30,101-107` (ES tasks)
 - `boards/documents.py` + the ES config · `hash_out/celery.py` + the Celery config · ~~`cms/models.py:15-70` (template-less Page models)~~ ✅ with all of Wagtail
 - ~~`accounts/tests/` + `boards/tests/` — 497 LOC testing only deleted code~~ ✅ replaced by `api/tests/test_auth.py`
 - ~~`frontend/public/{next,vercel,file,globe,window}.svg`~~ ✅ · dead imports: `api/main.py:18` (`os` twice), ~~`topics.py:4`~~ ✅, `topics.py:12`, `posts.py:12`, `notifications.py:5,11`, `search.py:4`, ~~`content.py:10`~~ ✅, `deps.py:6,10`, ~~`cms/models.py:10`~~ ✅, ~~`docker-compose.yml:2` (obsolete `version:`)~~ ✅
@@ -301,7 +329,7 @@ Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 43
 ```
 Phase 0  ½ d   boot + hygiene        ✅ done 2026-09-17
 Phase 1  1-2 d one UI stack          ✅ done 2026-09-17
-Phase 2  2-3 d auth + is_active      ← the real security hole
+Phase 2  2-3 d auth + is_active      ✅ done 2026-09-17
 Phase 3  1-2 d visible bug sweep     ← independent of 4-7, can interleave
 Phase 4  1-2 d 6 services → 3
 Phase 5  2-3 d server components + contract + perf
@@ -310,7 +338,7 @@ Phase 7  2-3 d production + CI
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Want a v1 deployed this week instead?** Phases 1 → 4 → 7 (skip 2, 3, 5, 6) gets a working, honest forum up in ~3½ days with search, uploads, notifications and `/admin/` moderation. Then 2 and 3 before it is public, and 5–6 after.
+**Want a v1 deployed this week instead?** Phases 4 → 7 (skip 3, 5, 6) gets a working, honest forum up in ~2½ days with search, uploads, notifications and `/admin/` moderation. Then 3 before it is public, and 5–6 after.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.
@@ -319,7 +347,7 @@ Phase 7  2-3 d production + CI
 4. Fix `migration 0003` before any deployment has more than one board.
 5. Fix `api/schemas.py` before generating TypeScript types.
 6. Fix the N+1 queries before adding indexes — they cut far more latency, and the indexes are easier to pick once the query shapes are final.
-7. Client-fetch consolidation before the httpOnly-cookie switch — nine call sites bypass `lib/api.ts` today and would silently keep working with no credentials.
+7. ~~Client-fetch consolidation before the httpOnly-cookie switch.~~ ✅ Satisfied in Phase 2.
 8. ~~`CREATEDB` on `boards_user` before Phase 1's replacement tests.~~ ✅ Satisfied.
 
 ---
