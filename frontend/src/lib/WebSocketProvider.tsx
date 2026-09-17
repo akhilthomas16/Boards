@@ -1,7 +1,8 @@
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { getTokens } from './api';
+import api, { API_BASE } from './api';
+import { useAuth } from './auth';
 
 export interface Notification {
     id: number;
@@ -24,26 +25,18 @@ const WebSocketContext = createContext<WebSocketContextType | null>(null);
 export function WebSocketProvider({ children }: { children: ReactNode }) {
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const unreadCount = notifications.filter(n => !n.is_read).length;
+    const { user } = useAuth();
 
     useEffect(() => {
+        if (!user) return;
+
         // Fetch initial notifications
-        const tokens = getTokens();
-        if (!tokens) return;
-
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-
-        fetch(`${apiUrl}/api/notifications/`, {
-            headers: { Authorization: `Bearer ${tokens.access}` }
-        })
-            .then(res => res.json())
-            .then(data => {
-                if (Array.isArray(data)) setNotifications(data);
-            })
+        api.get<Notification[]>('/api/notifications/')
+            .then(setNotifications)
             .catch(console.error);
 
-        // Setup WebSocket connection
-        const wsUrl = apiUrl.replace('http', 'ws') + `/api/notifications/ws?token=${tokens.access}`;
-        const ws = new WebSocket(wsUrl);
+        // The access cookie authenticates the handshake.
+        const ws = new WebSocket(API_BASE.replace(/^http/, 'ws') + '/api/notifications/ws');
 
         ws.onmessage = (event) => {
             try {
@@ -65,19 +58,15 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
         return () => {
             ws.close();
+            setNotifications([]);
         };
-    }, []);
+    }, [user]);
 
     const markAsRead = async (id: number) => {
         try {
             setNotifications(prev => prev.map(n => n.id === id ? { ...n, is_read: true } : n));
 
-            const tokens = getTokens();
-            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-            await fetch(`${apiUrl}/api/notifications/${id}/read`, {
-                method: 'POST',
-                headers: { Authorization: `Bearer ${tokens?.access}` }
-            });
+            await api.post(`/api/notifications/${id}/read`, {});
         } catch (error) {
             console.error('Failed to mark notification as read', error);
         }

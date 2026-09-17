@@ -1,10 +1,10 @@
 /**
- * JWT authentication utilities and React context.
+ * Auth React context. The session is the API's httpOnly cookies; this only mirrors who is logged in.
  */
 'use client';
 
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { apiFetch, setTokens, clearTokens, getTokens } from './api';
+import api from './api';
 
 interface User {
     id: number;
@@ -17,7 +17,7 @@ interface AuthContextType {
     isLoading: boolean;
     login: (username: string, password: string) => Promise<void>;
     signup: (username: string, email: string, password: string) => Promise<void>;
-    logout: () => void;
+    logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -27,55 +27,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        // Check for existing token on mount
-        const { access } = getTokens();
-        if (access) {
-            apiFetch<User>('/api/auth/me')
-                .then(setUser)
-                .catch(() => clearTokens())
-                .finally(() => setIsLoading(false));
-        } else {
-            setIsLoading(false);
-        }
+        // The cookies are invisible to JS, so ask the API whether they hold a session.
+        api.get<User>('/api/auth/me')
+            .then(setUser)
+            .catch(() => setUser(null))
+            .finally(() => setIsLoading(false));
     }, []);
 
     const login = async (username: string, password: string) => {
-        const formData = new URLSearchParams();
-        formData.append('username', username);
-        formData.append('password', password);
-
-        const res = await fetch(
-            `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/auth/token`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: formData.toString(),
-            }
+        const user = await api.postForm<User>(
+            '/api/auth/token',
+            new URLSearchParams({ username, password }),
+            { skipRefresh: true },
         );
-
-        if (!res.ok) {
-            const error = await res.json().catch(() => ({ detail: 'Login failed' }));
-            throw new Error(error.detail || 'Login failed');
-        }
-
-        const data = await res.json();
-        setTokens(data.access_token, data.refresh_token);
-
-        const user = await apiFetch<User>('/api/auth/me');
         setUser(user);
     };
 
     const signup = async (username: string, email: string, password: string) => {
-        await apiFetch('/api/auth/signup', {
-            method: 'POST',
-            body: JSON.stringify({ username, email, password }),
-            skipAuth: true,
-        });
+        await api.post('/api/auth/signup', { username, email, password });
         await login(username, password);
     };
 
-    const logout = () => {
-        clearTokens();
+    const logout = async () => {
+        await api.post('/api/auth/logout', {}).catch(() => {});
         setUser(null);
     };
 

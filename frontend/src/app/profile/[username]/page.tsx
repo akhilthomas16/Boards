@@ -6,13 +6,13 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import api, { getTokens } from '@/lib/api';
+import api, { API_BASE } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface Profile {
     user_id: number;
     username: string;
-    email: string;
+    email?: string;  // only on your own profile
     bio: string;
     avatar_url: string | null;
     location: string;
@@ -72,22 +72,7 @@ export default function ProfilePage() {
             const formData = new FormData();
             formData.append('file', file);
 
-            const { access } = getTokens();
-            const res = await fetch(
-                `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/profiles/me/avatar`,
-                {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${access}` },
-                    body: formData,
-                }
-            );
-
-            if (!res.ok) {
-                const err = await res.json();
-                throw new Error(err.detail || 'Upload failed');
-            }
-
-            const updated = await res.json();
+            const updated = await api.postMultipart<Profile>('/api/profiles/me/avatar', formData);
             setProfile(updated);
         } catch (err: unknown) {
             setError(err instanceof Error ? err.message : 'Upload failed');
@@ -132,7 +117,7 @@ export default function ProfilePage() {
                                 {profile?.avatar_url ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
-                                        src={`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}${profile.avatar_url}`}
+                                        src={`${API_BASE}${profile.avatar_url}`}
                                         alt={profile.username}
                                         className="profile-avatar-img"
                                     />

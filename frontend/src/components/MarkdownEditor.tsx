@@ -5,7 +5,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import MarkdownRenderer from './MarkdownRenderer';
-import { getTokens } from '@/lib/api';
+import api from '@/lib/api';
 
 interface UserMention {
     username: string;
@@ -35,19 +35,17 @@ export default function MarkdownEditor({
     const [mentionIndex, setMentionIndex] = useState(0);
 
     useEffect(() => {
-        if (!mentionQuery) {
+        if (!mentionQuery || mentionQuery.query.length < 2) {  // the API needs 2+ characters
             setMentionUsers([]);
             return;
         }
         const fetchUsers = async () => {
             try {
-                const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-                const res = await fetch(`${url}/api/profiles/search/users?q=${mentionQuery.query}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    setMentionUsers(data);
-                    setMentionIndex(0);
-                }
+                const data = await api.get<UserMention[]>(
+                    `/api/profiles/search/users?q=${encodeURIComponent(mentionQuery.query)}`
+                );
+                setMentionUsers(data);
+                setMentionIndex(0);
             } catch (err) { }
         };
         const timeout = setTimeout(fetchUsers, 200);
@@ -123,28 +121,15 @@ export default function MarkdownEditor({
 
     const uploadImage = async (file: File) => {
         setIsUploading(true);
-        const tokens = getTokens();
         const formData = new FormData();
         formData.append('file', file);
 
         try {
-            const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001';
-            const res = await fetch(`${url}/api/upload/image`, {
-                method: 'POST',
-                headers: tokens ? { Authorization: `Bearer ${tokens.access}` } : {},
-                body: formData,
-            });
-
-            if (res.ok) {
-                const data = await res.json();
-                insertText(`![${file.name}](${data.url})\n`);
-            } else {
-                const errData = await res.json();
-                alert(`Upload failed: ${errData.detail || 'Unknown error'}`);
-            }
+            const data = await api.postMultipart<{ url: string }>('/api/upload/image', formData);
+            insertText(`![${file.name}](${data.url})\n`);
         } catch (err) {
             console.error('Image upload failed:', err);
-            alert('Failed to connect to the upload server.');
+            alert(`Upload failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
         } finally {
             setIsUploading(false);
         }
