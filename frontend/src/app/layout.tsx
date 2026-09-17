@@ -12,7 +12,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Boards — Modern Discussion Forum",
+  title: "Hash Out — Modern Discussion Forum",
   description: "A premium discussion forum for thoughtful conversations. Create boards, start topics, and engage with a vibrant community.",
   keywords: "forum, discussion, boards, community, topics",
   manifest: "/manifest.json",
@@ -48,7 +48,7 @@ export default function RootLayout({
             <footer className="footer">
               <div className="container">
                 <p className="footer-text">
-                  &copy; {new Date().getFullYear()} Boards. Built with Next.js, FastAPI &amp; Django.
+                  &copy; {new Date().getFullYear()} Hash Out. Built with Next.js, FastAPI &amp; Django.
                 </p>
               </div>
             </footer>

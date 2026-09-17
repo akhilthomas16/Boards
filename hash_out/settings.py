@@ -255,7 +255,7 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # WAGTAIL
 # =============================================================================
 
-WAGTAIL_SITE_NAME = config('WAGTAIL_SITE_NAME', default='Boards CMS')
+WAGTAIL_SITE_NAME = config('WAGTAIL_SITE_NAME', default='Hash Out CMS')
 WAGTAILADMIN_BASE_URL = 'http://localhost:8000'
 WAGTAILSEARCH_BACKENDS = {
     'default': {

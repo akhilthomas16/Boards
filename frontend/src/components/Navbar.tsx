@@ -20,7 +20,7 @@ export default function Navbar() {
             <div className="container navbar-inner">
                 <Link href="/" className="navbar-brand">
                     <span className="brand-icon">◆</span>
-                    Boards
+                    Hash Out
                 </Link>
 
                 {/* Search bar */}

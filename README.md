@@ -1,4 +1,4 @@
-# Boards — Modern Discussion Forum
+# Hash Out — Modern Discussion Forum
 
 Full-stack discussion forum built with **Django + FastAPI + Next.js** and a premium dark UI.
 
