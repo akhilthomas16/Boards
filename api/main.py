@@ -6,7 +6,7 @@ import os
 import django
 
 # Bootstrap Django ORM before importing models
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hash_out.settings')
 django.setup()
 
 from fastapi import FastAPI, Request

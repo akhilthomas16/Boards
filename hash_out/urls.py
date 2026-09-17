@@ -1,5 +1,5 @@
 """
-URL configuration for myproject project.
+URL configuration for hash_out project.
 Routes: Django admin, Wagtail CMS, board views.
 """
 from django.contrib import admin

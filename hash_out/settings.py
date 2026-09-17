@@ -1,5 +1,5 @@
 """
-Django settings for myproject project.
+Django settings for hash_out project.
 Full-stack configuration: PostgreSQL, Redis, Elasticsearch, Wagtail, Celery, CORS.
 """
 
@@ -79,7 +79,7 @@ MIDDLEWARE = [
     'wagtail.contrib.redirects.middleware.RedirectMiddleware',
 ]
 
-ROOT_URLCONF = 'myproject.urls'
+ROOT_URLCONF = 'hash_out.urls'
 
 TEMPLATES = [
     {
@@ -98,7 +98,7 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = 'myproject.wsgi.application'
+WSGI_APPLICATION = 'hash_out.wsgi.application'
 
 
 # =============================================================================

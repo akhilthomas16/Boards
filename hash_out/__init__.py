@@ -1,5 +1,5 @@
 """
-myproject — Boards Forum
+hash_out — Boards Forum
 
 Import Celery app so it's loaded when Django starts.
 """

@@ -68,7 +68,7 @@ python manage.py runserver
 uvicorn api.main:app --port 8001 --reload
 
 # Start Celery worker
-celery -A myproject worker -l info
+celery -A hash_out worker -l info
 
 # Start Next.js frontend (port 3000)
 cd frontend && npm run dev
@@ -84,7 +84,7 @@ cd frontend && npm run dev
 ## Project Structure
 
 ```
-myproject/
+hash_out/
 ├── api/                    # FastAPI REST API
 │   ├── main.py             # FastAPI app entry
 │   ├── auth.py             # JWT authentication
@@ -107,7 +107,7 @@ myproject/
 │       ├── app/            # App Router pages
 │       ├── components/     # UI components
 │       └── lib/            # API client & auth
-├── myproject/              # Django project config
+├── hash_out/               # Django project config
 │   ├── settings.py         # All service configuration
 │   └── celery.py           # Celery app
 ├── templates/              # Django templates (legacy)

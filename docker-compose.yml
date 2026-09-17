@@ -1,4 +1,5 @@
 # Docker Compose — Full stack: PostgreSQL, Redis, Elasticsearch, Django, FastAPI, Celery, Next.js
+name: hash_out
 
 services:
   # ─── Infrastructure ─────────────────────────────────────
@@ -93,7 +94,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A myproject worker -l info --concurrency=2
+    command: celery -A hash_out worker -l info --concurrency=2
     volumes:
       - .:/app
       - media_data:/app/media
