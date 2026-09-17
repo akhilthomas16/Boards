@@ -1,5 +1,5 @@
 /**
- * Topic page — view posts and reply with HTMX-style form and AI suggestions.
+ * Topic page — view posts and reply with AI suggestions.
  */
 'use client';
 
