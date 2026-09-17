@@ -6,6 +6,7 @@ Full-stack configuration: PostgreSQL, Redis, Elasticsearch, Wagtail, Celery, COR
 import os
 from pathlib import Path
 from decouple import config, Csv
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,7 +19,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-dev-only')
 DEBUG = config('DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost,127.0.0.1', cast=Csv())
-FERNET_KEY = config('FERNET_KEY', default='RVkCS56oEi2gJ9XVJFX1ds_uv7bCV0js1zvKCsPAhTk=')
+FERNET_KEY = config('FERNET_KEY', default='')
 
 
 # =============================================================================
@@ -170,6 +171,13 @@ JWT_SECRET_KEY = config('JWT_SECRET_KEY', default='change-me-jwt-secret')
 JWT_ALGORITHM = config('JWT_ALGORITHM', default='HS256')
 JWT_ACCESS_TOKEN_EXPIRE_MINUTES = config('JWT_ACCESS_TOKEN_EXPIRE_MINUTES', default=30, cast=int)
 JWT_REFRESH_TOKEN_EXPIRE_DAYS = config('JWT_REFRESH_TOKEN_EXPIRE_DAYS', default=7, cast=int)
+
+# Never run with DEBUG off on the dev defaults above or the env.sample placeholders.
+if not DEBUG:
+    for _name in ('SECRET_KEY', 'JWT_SECRET_KEY', 'FERNET_KEY'):
+        _value = globals()[_name]
+        if not _value or _value.startswith(('django-insecure', 'change-me', 'your-')):
+            raise ImproperlyConfigured(f"{_name} must be a real secret when DEBUG=False")
 
 
 # =============================================================================
