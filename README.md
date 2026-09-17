@@ -47,7 +47,8 @@ npm install
 ### 2. Configure Environment
 
 ```bash
-cp .env.example .env
+cp env.sample .env
+cp frontend/env.sample frontend/.env.local
 # Edit .env with your PostgreSQL, Redis, Elasticsearch, and API keys
 ```
 
