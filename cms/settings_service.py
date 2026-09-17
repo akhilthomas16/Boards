@@ -15,10 +15,10 @@ def get_site_setting(key: str, default=None) -> str:
     try:
         setting = SiteSetting.objects.get(key=key)
         val = setting.get_value()
-        
-        # Cache the plaintext value to avoid decryption overhead on every read.
-        # In validate/save signals, we should clear this cache key.
-        cache.set(cache_key, val, timeout=3600)  # Cache for 1 hour
+
+        # Secrets are decrypted on every read rather than cached: Redis would hold them in plaintext.
+        if not setting.is_secret:
+            cache.set(cache_key, val, timeout=3600)
         return val
     except SiteSetting.DoesNotExist:
         return default

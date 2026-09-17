@@ -1,4 +1,4 @@
-# Boards — Modern Discussion Forum
+# Hash Out — Modern Discussion Forum
 
 Full-stack discussion forum built with **Django + FastAPI + Next.js** and a premium dark UI.
 
@@ -47,7 +47,8 @@ npm install
 ### 2. Configure Environment
 
 ```bash
-cp .env.example .env
+cp env.sample .env
+cp frontend/env.sample frontend/.env.local
 # Edit .env with your PostgreSQL, Redis, Elasticsearch, and API keys
 ```
 
@@ -67,7 +68,7 @@ python manage.py runserver
 uvicorn api.main:app --port 8001 --reload
 
 # Start Celery worker
-celery -A myproject worker -l info
+celery -A hash_out worker -l info
 
 # Start Next.js frontend (port 3000)
 cd frontend && npm run dev
@@ -83,7 +84,7 @@ cd frontend && npm run dev
 ## Project Structure
 
 ```
-myproject/
+hash_out/
 ├── api/                    # FastAPI REST API
 │   ├── main.py             # FastAPI app entry
 │   ├── auth.py             # JWT authentication
@@ -106,7 +107,7 @@ myproject/
 │       ├── app/            # App Router pages
 │       ├── components/     # UI components
 │       └── lib/            # API client & auth
-├── myproject/              # Django project config
+├── hash_out/               # Django project config
 │   ├── settings.py         # All service configuration
 │   └── celery.py           # Celery app
 ├── templates/              # Django templates (legacy)

@@ -1,8 +1,10 @@
 """
 Topic API endpoints — list, create, retrieve topics within boards.
 """
-from datetime import datetime, timezone
+from functools import reduce
+from operator import or_
 
+from django.db.models import Q
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from fastapi.responses import HTMLResponse
 from django.contrib.auth.models import User
@@ -13,6 +15,16 @@ from ..schemas import TopicCreate, TopicResponse, UserBrief
 from ..deps import paginate, invalidate_cache
 
 router = APIRouter()
+
+
+def _normalize_tags(raw: str | None) -> str:
+    """Comma-separated, lowercased, de-duplicated, order preserved."""
+    seen = []
+    for tag in (raw or "").split(","):
+        tag = tag.strip().lower()
+        if tag and tag not in seen:
+            seen.append(tag)
+    return ",".join(seen)[:255]
 
 
 def _topic_to_response(topic: Topic) -> dict:
@@ -49,8 +61,24 @@ def similar_topics(topic_id: int):
     except Topic.DoesNotExist:
         raise HTTPException(status_code=404, detail="Topic not found")
         
-    qs = Topic.objects.filter(board=topic.board).exclude(id=topic_id).select_related('starter', 'board').order_by('?')[:5]
-    return [_topic_to_response(t) for t in qs]
+    siblings = Topic.objects.exclude(id=topic_id).select_related('starter', 'board')
+
+    tags = [t for t in topic.tags.split(",") if t]
+    if tags:
+        overlapping = siblings.filter(
+            reduce(or_, (Q(tags__contains=tag) for tag in tags))
+        ).order_by('-last_updated')[:5]
+        matches = list(overlapping)
+    else:
+        matches = []
+
+    if len(matches) < 5:
+        # Top up with recent topics from the same board.
+        seen = {t.id for t in matches}
+        fill = siblings.filter(board=topic.board).exclude(id__in=seen).order_by('-last_updated')
+        matches += list(fill[:5 - len(matches)])
+
+    return [_topic_to_response(t) for t in matches]
 
 
 
@@ -103,7 +131,7 @@ def create_topic(
         subject=data.subject,
         board=board,
         starter=current_user,
-        tags=data.tags or "",
+        tags=_normalize_tags(data.tags),
     )
     Post.objects.create(
         message=data.message,

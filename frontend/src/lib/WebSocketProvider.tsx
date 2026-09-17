@@ -52,7 +52,7 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
 
                 // Optionally play a soft sound or show browser notification
                 if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-                    new Notification('Boards Forum', { body: `${newNotif.actor} ${newNotif.message}` });
+                    new Notification('Hash Out', { body: `${newNotif.actor} ${newNotif.message}` });
                 }
             } catch (err) {
                 console.error('Failed to parse WebSocket message', err);

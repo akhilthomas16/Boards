@@ -1,12 +1,12 @@
 """
-FastAPI application — REST API for the Boards forum.
+FastAPI application — REST API for the Hash Out forum.
 Run separately: uvicorn api.main:app --port 8001 --reload
 """
 import os
 import django
 
 # Bootstrap Django ORM before importing models
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'myproject.settings')
+os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hash_out.settings')
 django.setup()
 
 from fastapi import FastAPI, Request
@@ -22,8 +22,8 @@ from .routers import boards, topics, posts, search, content, profiles, notificat
 from .auth import router as auth_router
 
 app = FastAPI(
-    title="Boards Forum API",
-    description="REST API for the Boards web forum with JWT authentication",
+    title="Hash Out API",
+    description="REST API for the Hash Out discussion forum with JWT authentication",
     version="2.0.0",
     docs_url="/docs",
     redoc_url="/redoc",
@@ -60,4 +60,4 @@ if os.path.exists(media_dir):
 
 @app.get("/api/health", tags=["Health"])
 def health_check():
-    return {"status": "ok", "service": "boards-api"}
+    return {"status": "ok", "service": "hash-out-api"}

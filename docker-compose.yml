@@ -1,5 +1,5 @@
 # Docker Compose — Full stack: PostgreSQL, Redis, Elasticsearch, Django, FastAPI, Celery, Next.js
-version: '3.9'
+name: hash_out
 
 services:
   # ─── Infrastructure ─────────────────────────────────────
@@ -9,8 +9,6 @@ services:
       POSTGRES_DB: boards_db
       POSTGRES_USER: boards_user
       POSTGRES_PASSWORD: boards_pass
-    ports:
-      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -21,8 +19,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - "6379:6379"
     volumes:
       - redis_data:/data
     healthcheck:
@@ -37,8 +33,6 @@ services:
       - discovery.type=single-node
       - xpack.security.enabled=false
       - ES_JAVA_OPTS=-Xms256m -Xmx256m
-    ports:
-      - "9200:9200"
     volumes:
       - es_data:/usr/share/elasticsearch/data
     healthcheck:
@@ -62,7 +56,7 @@ services:
       - media_data:/app/media
     env_file: .env
     environment:
-      - DB_HOST=postgres
+      - DATABASE_URL=postgres://boards_user:boards_pass@postgres:5432/boards_db
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -85,7 +79,7 @@ services:
       - media_data:/app/media
     env_file: .env
     environment:
-      - DB_HOST=postgres
+      - DATABASE_URL=postgres://boards_user:boards_pass@postgres:5432/boards_db
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2
@@ -100,13 +94,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    command: celery -A myproject worker -l info --concurrency=2
+    command: celery -A hash_out worker -l info --concurrency=2
     volumes:
       - .:/app
       - media_data:/app/media
     env_file: .env
     environment:
-      - DB_HOST=postgres
+      - DATABASE_URL=postgres://boards_user:boards_pass@postgres:5432/boards_db
       - REDIS_URL=redis://redis:6379/0
       - CELERY_BROKER_URL=redis://redis:6379/1
       - CELERY_RESULT_BACKEND=redis://redis:6379/2

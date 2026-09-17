@@ -126,7 +126,7 @@ export default async function HomePage(props: {
         <aside>
           <div className="form-card" style={{ marginTop: 112, marginBottom: 24 }}>
             <h3 style={{ fontSize: '1rem', fontWeight: 600, marginBottom: 12, color: 'var(--text-primary)' }}>
-              Welcome to Boards
+              Welcome to Hash Out
             </h3>
             <p style={{ fontSize: '0.875rem', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 16 }}>
               A modern discussion platform for thoughtful conversations.

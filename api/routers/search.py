@@ -25,7 +25,11 @@ def search(
         # Try Elasticsearch first
         results, total = _search_elasticsearch(q, type, offset, page_size)
     except Exception:
-        # Fallback to Django ORM search
+        total = 0
+
+    if total == 0:
+        # Elasticsearch is unreachable, or its index is stale (indexing is not
+        # automatic — see ELASTICSEARCH_DSL_AUTOSYNC). The ORM always has the truth.
         results, total = _search_orm(q, type, offset, page_size)
 
     return SearchResponse(query=q, total=total, results=results)

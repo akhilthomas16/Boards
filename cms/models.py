@@ -10,6 +10,7 @@ from wagtail.images.blocks import ImageChooserBlock
 from wagtail.snippets.models import register_snippet
 from cryptography.fernet import Fernet
 from django.conf import settings
+from django.core.exceptions import ImproperlyConfigured
 
 
 class HomePage(Page):
@@ -87,33 +88,24 @@ class SiteSetting(models.Model):
     ]
 
     def _get_fernet(self):
-        f_key = getattr(settings, 'FERNET_KEY', None)
-        if not f_key:
-            return None
-        return Fernet(f_key.encode())
+        if not settings.FERNET_KEY:
+            raise ImproperlyConfigured("FERNET_KEY is required to store or read secret settings")
+        return Fernet(settings.FERNET_KEY.encode())
 
     def get_value(self):
         """Retrieve the plaintext value."""
         if not self.is_secret or not self.value or self._is_decrypted:
             return self.value
 
-        fernet = self._get_fernet()
-        if not fernet:
-            return self.value
-
-        try:
-            return fernet.decrypt(self.value.encode()).decode()
-        except Exception:
-            return self.value
+        # A wrong key or corrupt token raises InvalidToken: never pass ciphertext off as the value.
+        return self._get_fernet().decrypt(self.value.encode()).decode()
 
     def save(self, *args, **kwargs):
         """Encrypt value on save if marked secret."""
         if self.is_secret and self.value:
             if not self.value.startswith("gAAAAA"):  # Fernet tokens generally start with gAAAAA
-                fernet = self._get_fernet()
-                if fernet:
-                    self.value = fernet.encrypt(self.value.encode()).decode()
-            
+                self.value = self._get_fernet().encrypt(self.value.encode()).decode()
+
         super().save(*args, **kwargs)
         
         # Clear the cached plaintext to force a read and potential decryption on next access.

@@ -48,7 +48,7 @@ export default function SignupPage() {
         <div className="auth-container">
             <div className="auth-card">
                 <h1 className="auth-title">Create an Account</h1>
-                <p className="auth-subtitle">Join Boards and start discussing</p>
+                <p className="auth-subtitle">Join Hash Out and start discussing</p>
 
                 {error && <div className="alert alert-error">{error}</div>}
 

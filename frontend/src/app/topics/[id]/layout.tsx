@@ -9,14 +9,14 @@ export async function generateMetadata(props: LayoutProps): Promise<Metadata> {
     try {
         const resolvedParams = await props.params;
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'}/api/topics/${resolvedParams.id}`);
-        if (!res.ok) return { title: 'Topic Not Found - Boards Forum' };
+        if (!res.ok) return { title: 'Topic Not Found - Hash Out' };
         const topic = await res.json();
         return {
-            title: `${topic.subject} - Boards Forum`,
+            title: `${topic.subject} - Hash Out`,
             description: `Discussion started by ${topic.starter.username} in ${topic.board_name}`,
         };
     } catch (err) {
-        return { title: 'Boards Forum' };
+        return { title: 'Hash Out' };
     }
 }
 
