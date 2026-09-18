@@ -13,16 +13,9 @@ python-jose[cryptography]>=3.3
 python-multipart>=0.0.9
 email-validator>=2.0  # pydantic EmailStr
 
-# Elasticsearch
-elasticsearch>=8.0,<9.0
-django-elasticsearch-dsl>=8.0
-
-# Redis & Caching
+# Redis — sessions, OTP store, rate limits, notification pub/sub
 redis>=5.0
 django-redis>=5.4
-
-# Celery
-celery[redis]>=5.4
 
 # LLM Integration
 openai>=1.0

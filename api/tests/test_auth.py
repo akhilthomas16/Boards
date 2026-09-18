@@ -195,7 +195,7 @@ def test_change_password_logs_out_other_sessions(client):
 # --- forgot / reset password ---------------------------------------------------------------
 
 def request_code(client, email="alice@example.com"):
-    with mock.patch("api.tasks.send_otp_email") as send:
+    with mock.patch("api.auth.send_otp_email") as send:
         r = client.post("/api/auth/forgot-password", json={"email": email})
     return r, (send.call_args.args[1] if send.called else None)
 

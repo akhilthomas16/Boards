@@ -108,6 +108,7 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     total: int
+    counts: dict[str, int]  # per type, for the search UI's tabs
     results: List[SearchResult]
 
 

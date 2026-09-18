@@ -1,6 +1,6 @@
 """
 Django settings for hash_out project.
-Full-stack configuration: PostgreSQL, Redis, Elasticsearch, Celery.
+Configuration: PostgreSQL, Redis, JWT, email.
 """
 
 import os
@@ -34,9 +34,6 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-
-    # Third-party
-    'django_elasticsearch_dsl',
 
     # Project apps
     'accounts',
@@ -97,6 +94,8 @@ DATABASES = {
 # REDIS CACHE
 # =============================================================================
 
+# Redis is not optional: sessions, the OTP store, rate-limit counters and notification pub/sub.
+# Without it (tests, a bare checkout) fall back to local memory — single process, not shared.
 REDIS_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 
 CACHES = {
@@ -107,39 +106,13 @@ CACHES = {
             'CLIENT_CLASS': 'django_redis.client.DefaultClient',
         },
         'TIMEOUT': 300,
+    } if REDIS_URL else {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
     }
 }
 
 SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
 SESSION_CACHE_ALIAS = 'default'
-
-
-# =============================================================================
-# ELASTICSEARCH
-# =============================================================================
-
-ELASTICSEARCH_DSL = {
-    'default': {
-        'hosts': config('ELASTICSEARCH_URL', default='http://localhost:9200'),
-    },
-}
-
-# Writes must not depend on Elasticsearch being reachable. The default
-# RealTimeSignalProcessor bulk-indexes inside every Board/Topic/Post save.
-ELASTICSEARCH_DSL_AUTOSYNC = config('ELASTICSEARCH_DSL_AUTOSYNC', default=False, cast=bool)
-
-
-# =============================================================================
-# CELERY
-# =============================================================================
-
-CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://localhost:6379/1')
-CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://localhost:6379/2')
-CELERY_ACCEPT_CONTENT = ['json']
-CELERY_TASK_SERIALIZER = 'json'
-CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-CELERY_TASK_TRACK_STARTED = True
 
 
 # =============================================================================
@@ -220,6 +193,12 @@ MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 # =============================================================================
 
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.console.EmailBackend')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Hash Out <noreply@localhost>')
+EMAIL_HOST = config('EMAIL_HOST', default='localhost')
+EMAIL_PORT = config('EMAIL_PORT', default=25, cast=int)
+EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
+EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=False, cast=bool)
 
 
 # =============================================================================
