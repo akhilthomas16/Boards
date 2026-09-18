@@ -5,19 +5,20 @@ import hmac
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
-from fastapi.security import APIKeyCookie, OAuth2PasswordRequestForm
-from jose import JWTError, jwt
-from pydantic import BaseModel, EmailStr
+import jwt
+from django.conf import settings
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
-from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.core.mail import send_mail
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi.security import APIKeyCookie, OAuth2PasswordRequestForm
+from jwt import PyJWTError
+from pydantic import BaseModel, EmailStr
 
 from .limiter import limiter
 
@@ -82,7 +83,7 @@ def _password_fingerprint(user: User) -> str:
 
 
 def _encode(claims: dict, lifetime: timedelta, token_type: str) -> str:
-    expire = datetime.now(timezone.utc) + lifetime
+    expire = datetime.now(UTC) + lifetime
     return jwt.encode({**claims, "type": token_type, "exp": expire},
                       settings.JWT_SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
@@ -118,7 +119,7 @@ def verify_token(token: str | None, token_type: str = "access") -> dict:
         raise _unauthorized()
     try:
         payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-    except JWTError:
+    except PyJWTError:
         raise _unauthorized()
     if payload.get("type") != token_type:
         raise HTTPException(status_code=401, detail="Invalid token type")

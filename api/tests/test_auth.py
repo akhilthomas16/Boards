@@ -1,11 +1,11 @@
 """Auth endpoints over HTTP. Needs Postgres with CREATEDB on the role."""
 from unittest import mock
 
+import jwt
 import pytest
 from django.contrib.auth.models import User
 from django.core.cache import cache
 from fastapi.testclient import TestClient
-from jose import jwt
 from starlette.websockets import WebSocketDisconnect
 
 from api.main import app
@@ -148,7 +148,7 @@ def test_refresh_replay_after_grace_revokes_the_family(client):
     login(client)
     stolen = refresh_cookie(client)
     assert client.post("/api/auth/refresh").status_code == 200  # legitimate rotation
-    cache.delete(f"auth:used:{jwt.get_unverified_claims(stolen)['jti']}")  # grace window over
+    cache.delete(f"auth:used:{jwt.decode(stolen, options={'verify_signature': False})['jti']}")  # grace window over
 
     assert refresh_with(client, stolen).status_code == 401  # replay
     assert me(client).status_code == 401  # the legitimate session's family is revoked too
