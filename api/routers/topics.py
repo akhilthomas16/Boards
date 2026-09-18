@@ -4,7 +4,7 @@ Topic API endpoints — list, create, retrieve topics within boards.
 from functools import reduce
 from operator import or_
 
-from django.db.models import Q
+from django.db.models import F, Q
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
 
@@ -108,7 +108,7 @@ def get_topic(topic_id: int):
         raise HTTPException(status_code=404, detail="Topic not found")
 
     # Increment views
-    Topic.objects.filter(pk=topic_id).update(views_count=topic.views_count + 1)
+    Topic.objects.filter(pk=topic_id).update(views_count=F('views_count') + 1)
     topic.views_count += 1
 
     return _topic_to_response(topic)

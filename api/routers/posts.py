@@ -2,9 +2,12 @@
 Post API endpoints — list, create, update, delete posts within topics.
 """
 from datetime import datetime, timezone
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
+from django.db.models import F
+from django.db.models.functions import Greatest
 
 from boards.models import Topic, Post
 from ..auth import get_current_user
@@ -139,7 +142,7 @@ def delete_post(
 
 
 class ReactionRequest(BaseModel):
-    emoji: str
+    emoji: Literal["👍", "❤️"]  # the reactions PostCard offers; widen together
 
 @router.post("/{post_id}/react")
 def toggle_reaction(
@@ -177,16 +180,11 @@ def toggle_reaction(
                 link=f"/topics/{post.topic.id}#post-{post.id}"
             )
             
-    # Calculate new reputation score (dummy example: 1 reaction = +1 rep)
-    # This could be handled via signals, but simple straight calculation here:
-    if action == "added":
-        profile = post.created_by.profile
-        profile.reputation_score = (profile.reputation_score or 0) + 1
-        profile.save(update_fields=["reputation_score"])
-    elif action == "removed":
-        profile = post.created_by.profile
-        profile.reputation_score = max(0, (profile.reputation_score or 0) - 1)
-        profile.save(update_fields=["reputation_score"])
+    # 1 reaction from someone else = 1 reputation. Atomic, so concurrent reactions aren't lost.
+    if post.created_by_id != current_user.id:
+        from accounts.models import UserProfile
+        change = F('reputation_score') + 1 if action == "added" else Greatest(F('reputation_score') - 1, 0)
+        UserProfile.objects.filter(user_id=post.created_by_id).update(reputation_score=change)
 
     invalidate_cache(f"topic_{post.topic.id}")
     return {"status": "success", "action": action, "emoji": data.emoji}
