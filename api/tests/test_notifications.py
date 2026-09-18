@@ -62,3 +62,41 @@ def test_notification_is_pushed_and_disconnect_releases_the_subscription(member,
 
     # The tab closed and nothing else was published: the server must notice on its own.
     assert wait_until(lambda: subscribers(user) == 0), "handler kept its Redis subscription after disconnect"
+
+
+@pytest.fixture
+def noisy(member):
+    """A logged-in user with 25 notifications, 25 unread."""
+    client = member("alice")
+    user = User.objects.get(username="alice")
+    for i in range(25):
+        Notification.objects.create(recipient=user, actor=user, message=f"ping {i}", link="/")
+    return client
+
+
+def test_pagination_and_unread_count(noisy):
+    first = noisy.get("/api/notifications/?page_size=10").json()
+    assert first["count"] == 25 and first["total_pages"] == 3 and len(first["results"]) == 10
+    assert first["results"][0]["message"] == "ping 24"  # newest first
+    assert len(noisy.get("/api/notifications/?page=3&page_size=10").json()["results"]) == 5
+    assert noisy.get("/api/notifications/unread-count").json() == {"unread": 25}
+
+
+def test_mark_one_read_then_all(noisy):
+    one = noisy.get("/api/notifications/").json()["results"][0]["id"]
+    assert noisy.post(f"/api/notifications/{one}/read").json()["is_read"] is True
+    assert noisy.get("/api/notifications/unread-count").json()["unread"] == 24
+
+    assert noisy.post("/api/notifications/read-all").json() == {"unread": 0}
+    assert noisy.get("/api/notifications/unread-count").json()["unread"] == 0
+    assert Notification.objects.filter(is_read=False).count() == 0
+
+
+def test_delete_and_ownership(noisy, member):
+    mine = noisy.get("/api/notifications/").json()["results"][0]["id"]
+    bob = member("bob")
+    assert bob.post(f"/api/notifications/{mine}/read").status_code == 404  # not bob's
+    assert bob.delete(f"/api/notifications/{mine}").status_code == 404
+    assert noisy.delete(f"/api/notifications/{mine}").status_code == 204
+    assert not Notification.objects.filter(pk=mine).exists()
+    assert noisy.delete(f"/api/notifications/{mine}").status_code == 404

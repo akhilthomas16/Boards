@@ -3,9 +3,8 @@
  */
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import AdBanner from './AdBanner';
 import MarkdownEditor from './MarkdownEditor';
 import PostCard from './PostCard';
 import api from '@/lib/api';
@@ -25,6 +24,18 @@ export default function Conversation({ topicId, isLocked, posts }: ConversationP
     const [submitting, setSubmitting] = useState(false);
     const [aiLoading, setAiLoading] = useState(false);
     const [error, setError] = useState('');
+    const [myReactions, setMyReactions] = useState<Record<number, string[]>>({});
+
+    // Server-rendered pages carry no cookie, so which reactions are mine is asked for here.
+    useEffect(() => {
+        if (!user) {
+            setMyReactions({});
+            return;
+        }
+        api.get<Record<number, string[]>>(`/api/posts/topic/${topicId}/my-reactions`)
+            .then(setMyReactions)
+            .catch(() => {});
+    }, [user, topicId, posts]);
 
     const quote = (username: string, text: string) =>
         setReplyMessage(prev => `${prev}\n\n> **${username}** wrote:\n> ${text.split('\n').join('\n> ')}\n\n`);
@@ -67,25 +78,14 @@ export default function Conversation({ topicId, isLocked, posts }: ConversationP
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {posts.map((post, index) => (
-                    <div key={post.id}>
-                        <PostCard
-                            id={post.id}
-                            message={post.message}
-                            createdBy={post.created_by}
-                            createdAt={post.created_at}
-                            updatedAt={post.updated_at}
-                            isFirst={index === 0}
-                            initialReactions={post.reactions}
-                            onQuote={user ? (text) => quote(post.created_by.username, text) : undefined}
-                        />
-                        {/* Inline ad every 5 posts */}
-                        {index > 0 && index % 5 === 0 && (
-                            <AdBanner
-                                slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_INFEED || 'infeed'}
-                                className="ad-infeed"
-                            />
-                        )}
-                    </div>
+                    <PostCard
+                        key={post.id}
+                        post={post}
+                        myReactions={myReactions[post.id] ?? []}
+                        isFirst={index === 0}
+                        onQuote={user ? (text) => quote(post.created_by.username, text) : undefined}
+                        onChanged={() => router.refresh()}
+                    />
                 ))}
             </div>
 

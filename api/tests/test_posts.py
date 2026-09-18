@@ -74,3 +74,30 @@ def test_reply_moves_topic_to_the_top_of_the_board(topic_by, member):
 
     assert member("bob").post(f"/api/posts/topic/{older_id}", json={"message": "reply"}).status_code == 201
     assert listed() == [older_id, newer_id]
+
+
+def test_my_reactions_are_reported_for_the_viewer_only(topic_by, member):
+    alice, topic_id, post_id = topic_by("alice")
+    bob = member("bob")
+    react(bob, post_id, "👍")
+    react(alice, post_id, "❤️")
+
+    def first_post(client):
+        return client.get(f"/api/posts/topic/{topic_id}").json()["results"][0]
+
+    assert first_post(bob)["my_reactions"] == ["👍"]
+    assert first_post(alice)["my_reactions"] == ["❤️"]
+    assert first_post(TestClient(app))["my_reactions"] == []  # anonymous
+    assert first_post(bob)["reactions"] == {"👍": 1, "❤️": 1}
+
+
+def test_my_reactions_endpoint_is_per_user(topic_by, member):
+    """The topic page is server-rendered without a cookie, so the browser asks for this separately."""
+    alice, topic_id, post_id = topic_by("alice")
+    bob = member("bob")
+    react(bob, post_id, "👍")
+    react(alice, post_id, "❤️")
+
+    assert bob.get(f"/api/posts/topic/{topic_id}/my-reactions").json() == {str(post_id): ["👍"]}
+    assert alice.get(f"/api/posts/topic/{topic_id}/my-reactions").json() == {str(post_id): ["❤️"]}
+    assert TestClient(app).get(f"/api/posts/topic/{topic_id}/my-reactions").status_code == 401

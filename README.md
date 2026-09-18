@@ -12,7 +12,6 @@ Full-stack discussion forum built with **Django + FastAPI + Next.js** and a prem
 | **Database** | PostgreSQL | `5432` |
 | **Redis** | Sessions, reset codes, rate limits, notification pub/sub | `6379` |
 | **LLM** | OpenAI-compatible API | — |
-| **Ads** | Google AdSense | — |
 
 ## Features
 
@@ -21,7 +20,6 @@ Full-stack discussion forum built with **Django + FastAPI + Next.js** and a prem
 - 🔍 Search across boards, topics and posts
 - ✨ AI content generation (reply suggestions, topic summaries)
 - 🔔 Real-time notifications over a WebSocket
-- 💰 Google AdSense integration (banner, sidebar, infeed)
 - 🌙 Premium dark theme with glassmorphism and micro-animations
 
 ## Quick Start

@@ -97,7 +97,21 @@ export default function ProfileCard({ profile: initial }: { profile: PublicProfi
                         <span className="stat-value">{profile.post_count}</span>
                         <span className="stat-label">Posts</span>
                     </div>
+                    <div className="profile-stat">
+                        <span className="stat-value">{profile.reputation_score}</span>
+                        <span className="stat-label">Reputation</span>
+                    </div>
                 </div>
+
+                {profile.badges.length > 0 && (
+                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 12 }}>
+                        {profile.badges.map((badge) => (
+                            <span key={badge} style={{ fontSize: '0.75rem', background: 'var(--accent)', color: 'white', padding: '2px 8px', borderRadius: 12 }}>
+                                {badge}
+                            </span>
+                        ))}
+                    </div>
+                )}
 
                 <div className="profile-section">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>

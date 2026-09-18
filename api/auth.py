@@ -30,7 +30,8 @@ access_cookie = APIKeyCookie(name=ACCESS_COOKIE, auto_error=False)
 
 REFRESH_REUSE_GRACE_SECONDS = 30
 OTP_TTL_SECONDS = 600
-OTP_MAX_ATTEMPTS = 5
+VERIFY_TTL_SECONDS = 24 * 3600
+CODE_MAX_ATTEMPTS = 5
 
 
 # =============================================================================
@@ -46,6 +47,7 @@ class UserResponse(BaseModel):
     id: int
     username: str
     email: str
+    is_staff: bool = False
 
     class Config:
         from_attributes = True
@@ -53,6 +55,13 @@ class UserResponse(BaseModel):
 class ChangePasswordRequest(BaseModel):
     old_password: str
     new_password: str
+
+class EmailRequest(BaseModel):
+    email: str
+
+class VerifyEmailRequest(BaseModel):
+    email: str
+    code: str
 
 
 # =============================================================================
@@ -148,6 +157,16 @@ def get_current_user(token: str | None = Depends(access_cookie)) -> User:
     return user_from_token(token)
 
 
+def optional_user(token: str | None = Depends(access_cookie)) -> User | None:
+    """The current user, or None for anonymous callers — for endpoints that serve both."""
+    if not token:
+        return None
+    try:
+        return user_from_token(token)
+    except HTTPException:
+        return None
+
+
 # =============================================================================
 # ENDPOINTS
 # =============================================================================
@@ -160,6 +179,8 @@ def login(request: Request, response: Response, form_data: OAuth2PasswordRequest
     user = authenticate(username=form_data.username, password=form_data.password)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid username or password")
+    if not user.profile.email_verified:
+        raise HTTPException(status_code=403, detail="Verify your email before logging in.")
     issue_tokens(response, user)
     return user
 
@@ -197,7 +218,7 @@ def logout(request: Request, response: Response):
 
 @router.post("/signup", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
-def signup(request: Request, user_data: UserCreate):
+def signup(request: Request, user_data: UserCreate, background_tasks: BackgroundTasks):
     """Create a new user account."""
     email = user_data.email.lower()
     if User.objects.filter(username=user_data.username).exists():
@@ -206,7 +227,38 @@ def signup(request: Request, user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Email already registered")
     check_password_strength(user_data.password, User(username=user_data.username, email=email))
 
-    return User.objects.create_user(username=user_data.username, email=email, password=user_data.password)
+    # Created unverified: login is refused until the emailed code comes back.
+    user = User.objects.create_user(username=user_data.username, email=email, password=user_data.password)
+    background_tasks.add_task(_send_verification, email, issue_code("verify", email, user.id, VERIFY_TTL_SECONDS))
+    return user
+
+
+@router.post("/verify-email", response_model=UserResponse)
+@limiter.limit("5/minute")
+def verify_email(request: Request, data: VerifyEmailRequest):
+    """Activate an account with the code from the signup email."""
+    user_id = check_code("verify", data.email, data.code)
+    user = User.objects.filter(pk=user_id).select_related("profile").first()
+    if user is None:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    if not user.profile.email_verified:
+        user.profile.email_verified = True
+        user.profile.save(update_fields=["email_verified"])
+    clear_code("verify", data.email)
+    return user
+
+
+@router.post("/resend-verification")
+@limiter.limit("3/minute")
+def resend_verification(request: Request, data: EmailRequest, background_tasks: BackgroundTasks):
+    """Send the verification code again. Same response whether or not the account exists."""
+    message = {"message": "If that account needs verifying, a new code has been sent."}
+    user = User.objects.filter(email__iexact=data.email.strip(), profile__email_verified=False).first()
+    if user is not None:
+        background_tasks.add_task(_send_verification, user.email,
+                                  issue_code("verify", user.email, user.id, VERIFY_TTL_SECONDS))
+    return message
 
 
 @router.get("/me", response_model=UserResponse)
@@ -251,43 +303,61 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
-def _otp_keys(email: str) -> tuple[str, str]:
+def _code_keys(prefix: str, email: str) -> tuple[str, str]:
     email = email.strip().lower()
-    return f"otp:{email}", f"otp:attempts:{email}"
+    return f"{prefix}:{email}", f"{prefix}:attempts:{email}"
 
 
-def send_otp_email(email: str, otp: str) -> None:
-    send_mail(
-        subject="Your password reset code",
-        message=f"Your password reset code is: {otp}\n\nThis code expires in {OTP_TTL_SECONDS // 60} minutes.",
-        from_email=None,  # DEFAULT_FROM_EMAIL
-        recipient_list=[email],
-        fail_silently=False,
-    )
+def issue_code(prefix: str, email: str, user_id: int, ttl: int) -> str:
+    """Store a fresh 6-digit code for this email and return it."""
+    code = f"{secrets.randbelow(900000) + 100000}"
+    code_key, attempts_key = _code_keys(prefix, email)
+    cache.set(code_key, {"code": code, "user_id": user_id}, timeout=ttl)
+    cache.set(attempts_key, 0, timeout=ttl)
+    return code
 
 
-def _send_otp(email: str, otp: str) -> None:
-    try:
-        send_otp_email(email, otp)
-    except Exception:
-        logger.exception("Failed to send password reset code")
-
-
-def _check_otp(email: str, otp: str) -> int:
+def check_code(prefix: str, email: str, code: str) -> int:
     """Return the user id the code was issued for. Five wrong guesses burn the code."""
-    code_key, attempts_key = _otp_keys(email)
+    code_key, attempts_key = _code_keys(prefix, email)
     invalid = HTTPException(status_code=400, detail="Invalid or expired code")
     try:
         attempts = cache.incr(attempts_key)  # atomic, so parallel guesses can't share one count
     except ValueError:  # no code issued, or it expired
         raise invalid
     stored = cache.get(code_key)
-    if stored is None or attempts > OTP_MAX_ATTEMPTS:
+    if stored is None or attempts > CODE_MAX_ATTEMPTS:
         cache.delete_many([code_key, attempts_key])
         raise invalid
-    if not hmac.compare_digest(stored["otp"].encode(), otp.encode()):
+    if not hmac.compare_digest(stored["code"].encode(), code.encode()):
         raise invalid
     return stored["user_id"]
+
+
+def clear_code(prefix: str, email: str) -> None:
+    cache.delete_many(list(_code_keys(prefix, email)))
+
+
+def send_code_email(email: str, subject: str, body: str) -> None:
+    send_mail(subject=subject, message=body, from_email=None,  # DEFAULT_FROM_EMAIL
+              recipient_list=[email], fail_silently=False)
+
+
+def _send_in_background(email: str, subject: str, body: str) -> None:
+    try:
+        send_code_email(email, subject, body)
+    except Exception:
+        logger.exception("Failed to send %s to %s", subject, email)
+
+
+def _send_verification(email: str, code: str) -> None:
+    _send_in_background(email, "Verify your Hash Out account",
+                        f"Your verification code is: {code}\n\nIt expires in {VERIFY_TTL_SECONDS // 3600} hours.")
+
+
+def _send_otp(email: str, code: str) -> None:
+    _send_in_background(email, "Your password reset code",
+                        f"Your password reset code is: {code}\n\nThis code expires in {OTP_TTL_SECONDS // 60} minutes.")
 
 
 @router.post("/forgot-password")
@@ -299,11 +369,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, background_ta
     if user is None:
         return message
 
-    otp = f"{secrets.randbelow(900000) + 100000}"
-    code_key, attempts_key = _otp_keys(data.email)
-    cache.set(code_key, {"otp": otp, "user_id": user.id}, timeout=OTP_TTL_SECONDS)
-    cache.set(attempts_key, 0, timeout=OTP_TTL_SECONDS)
-
+    otp = issue_code("otp", data.email, user.id, OTP_TTL_SECONDS)
     # After the response, so a known email isn't measurably slower than an unknown one.
     background_tasks.add_task(_send_otp, user.email, otp)
     return message
@@ -313,7 +379,7 @@ def forgot_password(request: Request, data: ForgotPasswordRequest, background_ta
 @limiter.limit("5/minute")
 def verify_otp(request: Request, data: VerifyOTPRequest):
     """Pre-check a code before the reset form. Counts as an attempt; does not consume the code."""
-    _check_otp(data.email, data.otp)
+    check_code("otp", data.email, data.otp)
     return {"message": "Code verified"}
 
 
@@ -321,7 +387,7 @@ def verify_otp(request: Request, data: VerifyOTPRequest):
 @limiter.limit("3/minute")
 def reset_password(request: Request, data: ResetPasswordRequest):
     """Reset the password with a valid code. Logs out every session."""
-    user_id = _check_otp(data.email, data.otp)
+    user_id = check_code("otp", data.email, data.otp)
     user = User.objects.filter(pk=user_id, is_active=True).first()
     if user is None:
         raise HTTPException(status_code=400, detail="Invalid or expired code")
@@ -329,5 +395,5 @@ def reset_password(request: Request, data: ResetPasswordRequest):
     check_password_strength(data.new_password, user)
     user.set_password(data.new_password)
     user.save()
-    cache.delete_many(list(_otp_keys(data.email)))
+    clear_code("otp", data.email)
     return {"message": "Password has been reset successfully"}

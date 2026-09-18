@@ -4,8 +4,6 @@ import "./globals.css";
 import Navbar from "@/components/Navbar";
 import { AuthProvider } from "@/lib/auth";
 import { WebSocketProvider } from "@/lib/WebSocketProvider";
-import Script from "next/script";
-
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-sans",
@@ -27,20 +25,10 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const adsenseClientId = process.env.NEXT_PUBLIC_ADSENSE_CLIENT_ID;
-
   return (
     <html lang="en" className={inter.variable}>
       <head />
       <body>
-        {adsenseClientId ? (
-          <Script
-            async
-            src={`https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsenseClientId}`}
-            crossOrigin="anonymous"
-            strategy="afterInteractive"
-          />
-        ) : null}
         <AuthProvider>
           <WebSocketProvider>
             <Navbar />

@@ -65,13 +65,13 @@ def test_post_list_is_flat():
     made = seed(boards=1, topics=1, posts=3)
     topic = made[0][1]
     with CaptureQueriesContext(connection) as few:
-        list_posts(topic_id=topic.id, page=1, page_size=50)
+        list_posts(topic_id=topic.id, page=1, page_size=50, viewer=None)
     for p in range(20):
         Post.objects.create(message=f"extra {p}", topic=topic, created_by=User.objects.first())
     with CaptureQueriesContext(connection) as many:
-        list_posts(topic_id=topic.id, page=1, page_size=50)
+        list_posts(topic_id=topic.id, page=1, page_size=50, viewer=None)
     assert len(many.captured_queries) == len(few.captured_queries) <= 5
-    created = [p["created_at"] for p in list_posts(topic_id=topic.id, page=1, page_size=50)["results"]]
+    created = [p["created_at"] for p in list_posts(topic_id=topic.id, page=1, page_size=50, viewer=None)["results"]]
     assert created == sorted(created)  # oldest first, Meta.ordering survived
 
 

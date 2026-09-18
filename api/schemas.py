@@ -53,6 +53,11 @@ class TopicCreate(BaseModel):
     message: str  # first post content
     tags: Optional[str] = None
 
+class TopicModerate(BaseModel):
+    """Staff-only flags. Anything omitted is left alone."""
+    is_pinned: Optional[bool] = None
+    is_locked: Optional[bool] = None
+
 class TopicResponse(BaseModel):
     id: int
     subject: str
@@ -88,6 +93,7 @@ class PostResponse(BaseModel):
     created_by: UserBrief
     updated_by: Optional[UserBrief] = None
     reactions: dict[str, int] = {}  # emoji → count
+    my_reactions: List[str] = []  # emoji the caller has reacted with
     created_at: datetime
     updated_at: Optional[datetime] = None
 

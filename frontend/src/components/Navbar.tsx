@@ -118,6 +118,14 @@ export default function Navbar() {
                                                 </div>
                                             ))
                                         )}
+                                        <Link
+                                            href="/notifications"
+                                            className="dropdown-item"
+                                            onClick={() => setNotifOpen(false)}
+                                            style={{ textAlign: 'center', borderTop: '1px solid var(--border)' }}
+                                        >
+                                            See all notifications
+                                        </Link>
                                     </div>
                                 )}
                             </div>
@@ -138,6 +146,12 @@ export default function Navbar() {
                                 <div className="dropdown-menu">
                                     <Link href={`/profile/${user.username}`} className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                                         My Profile
+                                    </Link>
+                                    <Link href="/notifications" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                                        Notifications
+                                    </Link>
+                                    <Link href="/settings" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                                        Settings
                                     </Link>
                                     <div className="dropdown-divider"></div>
                                     <button className="dropdown-item logout" onClick={() => { logout(); setDropdownOpen(false); }}>

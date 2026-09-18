@@ -17,8 +17,27 @@ FORGOT_MESSAGE = "If an account with that email exists, a reset code has been se
 pytestmark = pytest.mark.django_db(transaction=True)  # see conftest.py
 
 
+def raw_signup(client, username="alice", email="alice@example.com", password=GOOD_PASSWORD):
+    """Sign up and return (response, emailed verification code)."""
+    with mock.patch("api.auth._send_verification") as send:
+        r = client.post("/api/auth/signup", json={"username": username, "email": email, "password": password})
+    return r, (send.call_args.args[1] if send.called else None)
+
+
+def verified(username):
+    return User.objects.get(username=username).profile.email_verified
+
+
+def verify(client, email="alice@example.com", code=""):
+    return client.post("/api/auth/verify-email", json={"email": email, "code": code})
+
+
 def signup(client, username="alice", email="alice@example.com", password=GOOD_PASSWORD):
-    return client.post("/api/auth/signup", json={"username": username, "email": email, "password": password})
+    """Sign up and verify, leaving a usable account — the flow itself is tested below."""
+    r, code = raw_signup(client, username, email, password)
+    if r.status_code == 201:
+        assert verify(client, email.lower(), code).status_code == 200
+    return r
 
 
 def login(client, username="alice", password=GOOD_PASSWORD):
@@ -82,7 +101,7 @@ def test_login_sets_httponly_cookies_and_returns_no_tokens(client):
     signup(client)
     r = login(client)
     assert r.status_code == 200
-    assert set(r.json()) == {"id", "username", "email"}
+    assert set(r.json()) == {"id", "username", "email", "is_staff"}
     cookies = r.headers.get_list("set-cookie")
     access = next(c for c in cookies if c.startswith("access_token="))
     refresh = next(c for c in cookies if c.startswith("refresh_token="))
@@ -195,7 +214,7 @@ def test_change_password_logs_out_other_sessions(client):
 # --- forgot / reset password ---------------------------------------------------------------
 
 def request_code(client, email="alice@example.com"):
-    with mock.patch("api.auth.send_otp_email") as send:
+    with mock.patch("api.auth._send_otp") as send:
         r = client.post("/api/auth/forgot-password", json={"email": email})
     return r, (send.call_args.args[1] if send.called else None)
 
@@ -278,3 +297,66 @@ def test_websocket_rejects_before_accept(client, case):
         User.objects.filter(username="alice").update(is_active=False)
     with pytest.raises(WebSocketDisconnect):
         ws_connect(client, origin="https://evil.example" if case == "bad_origin" else None)
+
+
+# --- email verification ---------------------------------------------------------------
+
+def test_signup_leaves_the_account_unverified_until_the_code_comes_back(client):
+    r, code = raw_signup(client)
+    assert r.status_code == 201
+    assert code and len(code) == 6 and code.isdigit()
+    assert not verified("alice")
+
+    refused = login(client)
+    assert refused.status_code == 403
+    assert refused.json()["detail"] == "Verify your email before logging in."
+
+    assert verify(client, code=code).json()["username"] == "alice"
+    assert verified("alice")
+    assert login(TestClient(app)).status_code == 200
+
+
+def test_verification_code_must_be_right(client):
+    _, code = raw_signup(client)
+    wrong = "000000" if code != "000000" else "111111"
+    assert verify(client, code=wrong).status_code == 400
+    assert not verified("alice")
+    assert verify(client, code=code).status_code == 200
+
+
+def test_five_wrong_verification_codes_burn_the_code(client):
+    _, code = raw_signup(client)
+    wrong = "000000" if code != "000000" else "111111"
+    for _ in range(5):
+        assert verify(client, code=wrong).status_code == 400
+    assert verify(client, code=code).status_code == 400
+    assert not verified("alice")
+
+
+def test_resend_verification_is_enumeration_safe(client):
+    raw_signup(client)
+    with mock.patch("api.auth._send_verification") as send:
+        known = client.post("/api/auth/resend-verification", json={"email": "alice@example.com"})
+        unknown = client.post("/api/auth/resend-verification", json={"email": "nobody@example.com"})
+    assert known.json() == unknown.json()
+    assert send.call_count == 1
+    assert verify(client, code=send.call_args.args[1]).status_code == 200
+
+
+def test_wrong_password_on_an_unverified_account_still_says_invalid(client):
+    raw_signup(client)
+    assert login(client, password="wrong-password").status_code == 401
+
+
+def test_me_reports_staff(client, member, staff):
+    assert member("bob").get("/api/auth/me").json()["is_staff"] is False
+    assert staff("mod").get("/api/auth/me").json()["is_staff"] is True
+
+
+def test_a_banned_account_is_not_told_its_password_was_right(client):
+    """is_active=False means banned; it must not produce the "verify your email" hint."""
+    signup(client)
+    User.objects.filter(username="alice").update(is_active=False)
+    refused = login(TestClient(app))
+    assert refused.status_code == 401
+    assert refused.json()["detail"] == "Invalid username or password"

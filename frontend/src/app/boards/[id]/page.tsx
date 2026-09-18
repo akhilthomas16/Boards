@@ -3,7 +3,6 @@
  */
 import { Suspense } from 'react';
 import Link from 'next/link';
-import AdBanner from '@/components/AdBanner';
 import NewTopicForm from '@/components/NewTopicForm';
 import Pagination from '@/components/Pagination';
 import { fetchApi } from '@/lib/server-api';
@@ -38,10 +37,6 @@ export default async function BoardTopicsPage(props: {
 
                     <NewTopicForm boardId={board.id} />
 
-                    <AdBanner
-                        slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_BANNER || 'banner'}
-                        className="ad-infeed"
-                    />
 
                     {topics.results.length === 0 ? (
                         <div className="form-card" style={{ textAlign: 'center', padding: 40 }}>
@@ -88,10 +83,6 @@ export default async function BoardTopicsPage(props: {
                 </div>
 
                 <aside>
-                    <AdBanner
-                        slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_SIDEBAR || 'sidebar'}
-                        className="ad-sidebar"
-                    />
                 </aside>
             </div>
         </div>

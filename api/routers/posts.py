@@ -10,10 +10,11 @@ from django.db.models import Count, F
 from django.db.models.functions import Greatest
 
 from boards.models import Topic, Post
-from ..auth import get_current_user
+from ..auth import get_current_user, optional_user
 from ..schemas import PostCreate, PostListResponse, PostUpdate, PostResponse, UserBrief
 from pydantic import BaseModel
 from ..deps import paginate
+from ..mentions import notify_mentions
 from .profiles import get_user_badges
 
 router = APIRouter()
@@ -31,10 +32,12 @@ def _posts(topic_id: int) -> "QuerySet[Post]":
             .order_by(*Post._meta.ordering))
 
 
-def _post_to_response(post):
-    reactions = {}
+def _post_to_response(post, viewer: User | None = None):
+    reactions, mine = {}, []
     for reaction in post.reactions.all():  # prefetched by _posts
         reactions[reaction.emoji] = reactions.get(reaction.emoji, 0) + 1
+        if viewer is not None and reaction.user_id == viewer.id:
+            mine.append(reaction.emoji)
 
     return {
         "id": post.id,
@@ -50,6 +53,7 @@ def _post_to_response(post):
             if post.updated_by else None
         ),
         "reactions": reactions,
+        "my_reactions": mine,
         "created_at": post.created_at,
         "updated_at": post.updated_at,
     }
@@ -60,6 +64,7 @@ def list_posts(
     topic_id: int,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    viewer: User | None = Depends(optional_user),
 ):
     """List posts in a topic with pagination."""
     try:
@@ -68,11 +73,27 @@ def list_posts(
         raise HTTPException(status_code=404, detail="Topic not found")
 
     paged = paginate(_posts(topic.id), page, page_size)
-    paged["results"] = [_post_to_response(p) for p in paged["results"]]
+    paged["results"] = [_post_to_response(p, viewer) for p in paged["results"]]
     return paged
 
 
-@router.post("/topic/{topic_id}", status_code=status.HTTP_201_CREATED)
+@router.get("/topic/{topic_id}/my-reactions", response_model=dict[int, list[str]])
+def my_reactions(topic_id: int, current_user: User = Depends(get_current_user)):
+    """Which reactions in this topic are the caller's own, as {post_id: [emoji]}.
+
+    The topic page is server-rendered and the server has no user cookie, so the browser asks for
+    this one small thing itself instead of re-fetching every post.
+    """
+    from boards.models import Reaction
+
+    mine: dict[int, list[str]] = {}
+    for post_id, emoji in (Reaction.objects.filter(post__topic_id=topic_id, user=current_user)
+                           .values_list("post_id", "emoji")):
+        mine.setdefault(post_id, []).append(emoji)
+    return mine
+
+
+@router.post("/topic/{topic_id}", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 def create_post(
     topic_id: int,
     data: PostCreate,
@@ -93,6 +114,8 @@ def create_post(
         created_by=current_user,
     )
     
+    link = f"/topics/{topic.id}#post-{post.id}"
+
     # Notify topic starter
     if topic.starter != current_user:
         from notifications.models import Notification
@@ -100,13 +123,14 @@ def create_post(
             recipient=topic.starter,
             actor=current_user,
             message=f"replied to your topic: {topic.subject[:30]}",
-            link=f"/topics/{topic.id}#post-{post.id}"
+            link=link,
         )
-        
-    return _post_to_response(post)
+
+    notify_mentions(data.message, current_user, link, skip_user_ids={topic.starter_id})
+    return _post_to_response(post, current_user)
 
 
-@router.patch("/{post_id}")
+@router.patch("/{post_id}", response_model=PostResponse)
 def update_post(
     post_id: int,
     data: PostUpdate,
@@ -125,7 +149,9 @@ def update_post(
     post.updated_by = current_user
     post.updated_at = datetime.now(timezone.utc)
     post.save()
-    return _post_to_response(post)
+    notify_mentions(data.message, current_user, f"/topics/{post.topic_id}#post-{post.id}",
+                    skip_user_ids={post.created_by_id})
+    return _post_to_response(post, current_user)
 
 
 @router.delete("/{post_id}", status_code=status.HTTP_204_NO_CONTENT)

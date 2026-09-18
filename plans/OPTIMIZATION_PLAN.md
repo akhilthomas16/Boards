@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phases 0–4 ✅ merged (PR #5–#9). Phase 5 ✅ done on `feat/phase-5-server-components` — the board, topic, profile and search pages are server-rendered, list queries are flat, and the frontend types are generated from the API. **Next: Phase 6** (complete the product) or **Phase 7** (deploy).
+**Status:** Phases 0–5 ✅ merged (PR #5–#10). Phase 6 ✅ done on `feat/phase-6-complete` — moderation, post edit/delete, mentions, notifications, settings, search tabs and email verification all exist end to end. **Next: Phase 7** (production shape and CI), the last phase.
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 5. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 6. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -311,24 +311,51 @@ manage.py check · makemigrations --check · tsc --noEmit · docker compose conf
 
 ---
 
-## Phase 6 — Complete the product (3–5 days)
+## Phase 6 — Complete the product ✅ Done
 
-Every item here is capability that exists on one side of the boundary and nowhere on the other.
+**Completed 2026-09-18** on `feat/phase-6-complete`. Two product calls were yours: **add email verification** and **delete AdBanner**.
 
-| Gap | What exists | What's missing |
-|---|---|---|
-| **Moderation** | `is_pinned`, `is_locked` fields; `PROTECT` FKs | No endpoint writes them. Add staff-gated `PATCH /api/topics/{id}` + `DELETE` (delete must cascade posts explicitly — FKs are `PROTECT`), plus a staff action row in the UI |
-| **Post edit/delete** | `posts.py:145-183`, author-or-staff enforced | Zero UI. Pass `currentUserId`/`isStaff` into `PostCard`, wire `api.patch`/`api.delete` |
-| **@mentions** | Full autocomplete in `MarkdownEditor.tsx:37-54` | The write path never parses mentions, so they notify nobody. Also `:83` strips the `@` (off-by-one on `cursor - match[1].length`) |
-| **Reactions** | `Reaction` model, POST endpoint, counts (now in `PostResponse`) | The API never says which reactions are *yours*, forcing a `-2` count hack in `PostCard`. Return `my_reactions: list[str]` (needs a real optional-auth dependency — see below) |
-| **Notifications** | Model, list, mark-one-read, WS delivery | No unread-count, no mark-all (the client loops one request per notification at `WebSocketProvider.tsx:86-88`), no delete, no pagination, no `/notifications` page |
-| **Search UI** | API supports `type` + pagination and returns per-type `counts`; the page is a server component reading `searchParams` | It still sends only `q`. Add type tabs and `<Pagination>` — both are links now, no client code needed |
-| **Settings page** | `/api/profiles/me` and `POST /api/auth/change-password` | No page (the dead Navbar link was removed in Phase 3). Build `app/settings/page.tsx` and link it from the user menu again |
-| **Email verification** | Nothing | Accounts are live on first POST. Either add it (`is_active=False` + `verify:{email}` code + `POST /api/auth/verify-email`) or decide explicitly not to and document it |
-| **Profile display** | `reputation_score`, `badges` returned | Never rendered |
-| **AdSense** | `AdBanner` reads 4 env vars, documented in `frontend/env.sample` (Phase 0) | Unset values still render a visible "AdSense Slot: …" placeholder. Real account → set them; no account → delete `AdBanner` |
+| Commit | What landed |
+|---|---|
+| `feat(api): email verification on signup, and an optional-auth dependency` | Signup emails a 6-digit code and login is refused until it comes back (`403`, distinct from a ban's `401`). `POST /api/auth/verify-email` and `/resend-verification`, both enumeration-safe and attempt-limited. The code helpers are now shared with the password-reset flow. `UserProfile.email_verified` (migration `accounts.0002`, existing profiles backfilled to verified) |
+| `feat(api): moderation, mentions, my reactions and notification management` | **Moderation:** staff-only `PATCH /api/topics/{id}` (pin/lock, partial, via `.update()` so moderating doesn't bump the topic) and `DELETE` (posts first — the FKs are `PROTECT`). **Mentions:** `api/mentions.py` parses `@username` on topic create, post create and post edit, notifying up to 10 real users, skipping the author and anyone already notified. **Reactions:** `my_reactions` on `PostResponse`, plus `GET /api/posts/topic/{id}/my-reactions` for server-rendered pages. **Notifications:** pagination, `unread-count`, `read-all`, `DELETE /{id}`, and mark-read returns the row. **Optional auth:** `optional_user` dependency. `is_staff` on `UserResponse` |
+| `feat(frontend): moderation, editing, notifications, settings and search tabs` (also deletes `AdBanner` and its five usages) | `PostCard` rewritten: reaction state shows which are yours and toggles, plus inline edit and delete for the author or staff. `TopicModeration` bar for staff. `/notifications` page (paginated, mark-all, delete) and `/settings` page (profile + change password), both linked from the user menu. Search gets type tabs with per-type counts and pagination. Profiles show reputation and badges. Signup gained the verification step |
+| `chore: remove the adsense configuration` | The five env vars, the Django settings block and the README row; the AdSense script left the layout with the component |
 
-Note: ~~`get_optional_user`~~ ✅ deleted in Phase 2. Where optional auth is genuinely needed (reactions, public profiles), depend on `access_cookie` (already `auto_error=False`) and return `None` instead of raising.
+### Where it departed from the original plan
+
+- **Email verification uses `UserProfile.email_verified`, not `is_active`.** The plan's `is_active=False` conflates *unverified* with *banned*: a banned user would be told "verify your email", which also reveals that their password was right. Verified state is its own field; `is_active` still means banned.
+- **`my_reactions` needed a second endpoint.** Phase 5 made the topic page server-rendered, and the Next server has no user cookie, so the list response's `my_reactions` is always empty there. The browser asks `GET /api/posts/topic/{id}/my-reactions` for one small per-viewer map instead of re-fetching every post.
+- **The plan's `@`-stripping bug does not exist.** Checked in a real browser: the autocomplete inserts `@username ` with the `@` intact. Nothing to fix.
+- **Moderation is pin/lock/delete only** — no subject editing. `TopicModerate` ignores anything else.
+- **`/notifications` and `/settings` are client pages**, unlike the Phase 5 conversions: both render only the caller's own data, which the server cannot read.
+- **Email verification's practical catch:** `EMAIL_BACKEND` still defaults to the console backend, so in dev the code is printed in the API log, not delivered. A real SMTP host is needed before signup works for anyone else (Phase 7 deployment).
+
+### Bugs found while testing this phase
+
+- **The settings form wiped what you typed.** The profile fetch resolved after the user started typing and overwrote the fields, then "Profile saved." reported success for an empty bio. The form now renders only once its data has arrived.
+- **A moderated topic jumped to the top** of the board list, because `.save()` refreshed `last_updated` (`auto_now`). Moderation writes with `.update()`; there's a test.
+
+### Exit criteria
+
+```
+pytest                                                              ✅ 85 passed (14 new)
+mutation check: verification gate, staff gate, topic-delete cascade, mention
+  exclusions, per-viewer my_reactions, pin-without-bump                ✅ 6/6 caught
+headless Chrome, full product pass:
+  signup → login refused → emailed code → signed in                    ✅
+  reaction marked as mine, survives a reload, toggles off              ✅
+  post edited and deleted from the UI                                  ✅
+  @mention lands in the other user's notifications                     ✅
+  notifications: mark-all clears the badge, delete empties the list    ✅
+  settings: profile saved, password changed, reputation on the profile ✅
+  moderation row hidden from normal users; staff pinned, locked, deleted ✅
+  search type tabs filter and show per-type counts                     ✅
+  no uncaught page errors                                              ✅
+mention autocomplete inserts "@username " (plan claimed it strips @)   ✅ verified, no bug
+npm run build · tsc --noEmit · eslint (0 errors) · manage.py check ·
+  makemigrations --check · docker compose config                       ✅
+```
 
 ---
 
@@ -389,12 +416,12 @@ Phase 2  2-3 d auth + is_active      ✅ done 2026-09-17
 Phase 3  1-2 d visible bug sweep     ✅ done 2026-09-17
 Phase 4  1-2 d 6 services → 3        ✅ done 2026-09-18
 Phase 5  2-3 d server components      ✅ done 2026-09-18
-Phase 6  3-5 d complete the product
+Phase 6  3-5 d complete the product  ✅ done 2026-09-18
 Phase 7  2-3 d production + CI
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Want a v1 deployed now?** Phase 7 alone (skip 6) gets a working, honest forum deployed in ~2–3 days with search, uploads, notifications and `/admin/` moderation. Then 6 after.
+**Only Phase 7 left:** production shape and CI. Needs disk space for image builds and a real SMTP host, or signup emails go nowhere.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.

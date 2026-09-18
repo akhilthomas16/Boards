@@ -30,6 +30,7 @@ export default async function ProfilePage(props: { params: Promise<{ username: s
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 8, fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                             <div>Topics: <strong>{profile.topic_count}</strong></div>
                             <div>Posts: <strong>{profile.post_count}</strong></div>
+                            <div>Reputation: <strong>{profile.reputation_score}</strong></div>
                         </div>
                     </div>
                 </aside>
