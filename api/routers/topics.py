@@ -6,12 +6,14 @@ from operator import or_
 
 from django.db.models import Count, F, Q
 from fastapi import APIRouter, Depends, HTTPException, status, Query
+from django.db import transaction
 from django.contrib.auth.models import User
 
 from boards.models import Board, Topic, Post
 from ..auth import get_current_user
-from ..schemas import TopicCreate, TopicListResponse, TopicResponse, UserBrief
+from ..schemas import TopicCreate, TopicListResponse, TopicModerate, TopicResponse, UserBrief
 from ..deps import paginate
+from ..mentions import notify_mentions
 
 router = APIRouter()
 
@@ -127,7 +129,7 @@ def get_topic(topic_id: int):
     return _topic_to_response(topic)
 
 
-@router.post("/board/{board_id}", status_code=status.HTTP_201_CREATED)
+@router.post("/board/{board_id}", response_model=TopicResponse, status_code=status.HTTP_201_CREATED)
 def create_topic(
     board_id: int,
     data: TopicCreate,
@@ -145,9 +147,48 @@ def create_topic(
         starter=current_user,
         tags=_normalize_tags(data.tags),
     )
-    Post.objects.create(
+    post = Post.objects.create(
         message=data.message,
         topic=topic,
         created_by=current_user,
     )
+    notify_mentions(data.message, current_user, f"/topics/{topic.id}#post-{post.id}")
     return _topic_to_response(topic)
+
+
+def _staff_only(user: User) -> None:
+    if not user.is_staff:
+        raise HTTPException(status_code=403, detail="Moderator access required")
+
+
+@router.patch("/{topic_id}", response_model=TopicResponse)
+def moderate_topic(
+    topic_id: int,
+    data: TopicModerate,
+    current_user: User = Depends(get_current_user),
+):
+    """Pin or lock a topic (staff only)."""
+    _staff_only(current_user)
+    topic = _topics().filter(pk=topic_id).first()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    fields = data.model_dump(exclude_unset=True)
+    if fields:
+        Topic.objects.filter(pk=topic_id).update(**fields)  # .update(): no auto_now bump on last_updated
+        topic = _topics().get(pk=topic_id)
+    return _topic_to_response(topic)
+
+
+@router.delete("/{topic_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_topic(topic_id: int, current_user: User = Depends(get_current_user)):
+    """Delete a topic and its posts (staff only)."""
+    _staff_only(current_user)
+    topic = Topic.objects.filter(pk=topic_id).first()
+    if topic is None:
+        raise HTTPException(status_code=404, detail="Topic not found")
+
+    with transaction.atomic():
+        # Post.topic is PROTECT, so the posts (and their cascading reactions) go first.
+        Post.objects.filter(topic=topic).delete()
+        topic.delete()

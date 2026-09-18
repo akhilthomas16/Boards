@@ -14,6 +14,9 @@ import json
 import logging
 
 from ..auth import ACCESS_COOKIE, get_current_user, user_from_token
+from ..deps import paginate
+from ..schemas import Page
+from fastapi import Query
 from django.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
@@ -32,36 +35,69 @@ class NotificationResponse(BaseModel):
         from_attributes = True
 
 
-@router.get("/", response_model=List[NotificationResponse])
-def get_notifications(current_user: User = Depends(get_current_user)):
-    """Get the latest notifications for the current user."""
+class NotificationListResponse(Page):
+    results: List[NotificationResponse]
+
+
+class UnreadCount(BaseModel):
+    unread: int
+
+
+def _as_response(n) -> NotificationResponse:
+    return NotificationResponse(id=n.id, message=n.message, link=n.link,
+                                actor=n.actor.username, is_read=n.is_read, created_at=n.created_at)
+
+
+@router.get("/", response_model=NotificationListResponse)
+def get_notifications(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_user),
+):
+    """The current user's notifications, newest first."""
     from notifications.models import Notification
-    
-    # Get last 20 notifications
-    notifications = Notification.objects.filter(recipient=current_user).select_related('actor')[:20]
-    
-    return [
-        NotificationResponse(
-            id=n.id,
-            message=n.message,
-            link=n.link,
-            actor=n.actor.username,
-            is_read=n.is_read,
-            created_at=n.created_at
-        ) for n in notifications
-    ]
+
+    paged = paginate(Notification.objects.filter(recipient=current_user).select_related('actor'),
+                     page, page_size)
+    paged["results"] = [_as_response(n) for n in paged["results"]]
+    return paged
 
 
-@router.post("/{notification_id}/read")
+@router.get("/unread-count", response_model=UnreadCount)
+def unread_count(current_user: User = Depends(get_current_user)):
+    """How many unread notifications the user has — one query, no list."""
+    from notifications.models import Notification
+    return {"unread": Notification.objects.filter(recipient=current_user, is_read=False).count()}
+
+
+@router.post("/{notification_id}/read", response_model=NotificationResponse)
 def mark_read(notification_id: int, current_user: User = Depends(get_current_user)):
     """Mark a notification as read."""
     from notifications.models import Notification
-    try:
-        notification = Notification.objects.get(id=notification_id, recipient=current_user)
+    notification = Notification.objects.filter(id=notification_id, recipient=current_user).select_related('actor').first()
+    if notification is None:
+        raise HTTPException(status_code=404, detail="Notification not found")
+
+    if not notification.is_read:
         notification.is_read = True
         notification.save(update_fields=['is_read'])
-        return {"status": "success"}
-    except Notification.DoesNotExist:
+    return _as_response(notification)
+
+
+@router.post("/read-all", response_model=UnreadCount)
+def mark_all_read(current_user: User = Depends(get_current_user)):
+    """Mark everything read in one query (the client used to send one request per notification)."""
+    from notifications.models import Notification
+    Notification.objects.filter(recipient=current_user, is_read=False).update(is_read=True)
+    return {"unread": 0}
+
+
+@router.delete("/{notification_id}", status_code=204)
+def delete_notification(notification_id: int, current_user: User = Depends(get_current_user)):
+    """Delete one notification."""
+    from notifications.models import Notification
+    deleted, _ = Notification.objects.filter(id=notification_id, recipient=current_user).delete()
+    if not deleted:
         raise HTTPException(status_code=404, detail="Notification not found")
 
 
