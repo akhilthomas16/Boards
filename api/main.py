@@ -51,10 +51,22 @@ app.include_router(profiles.router, prefix="/api/profiles", tags=["User Profiles
 app.include_router(notifications.router, prefix="/api/notifications", tags=["Notifications"])
 app.include_router(upload.router, prefix="/api/upload", tags=["Uploads"])
 
+class MediaFiles(StaticFiles):
+    """User uploads: never sniffed, never scripted, and only image types served as images."""
+
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Content-Security-Policy"] = "default-src 'none'; sandbox"
+        if not response.headers.get("content-type", "").startswith(("image/jpeg", "image/png", "image/gif", "image/webp")):
+            response.headers["Content-Type"] = "application/octet-stream"
+        return response
+
+
 # Serve uploaded media files
 media_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'media')
 if os.path.exists(media_dir):
-    app.mount("/media", StaticFiles(directory=media_dir), name="media")
+    app.mount("/media", MediaFiles(directory=media_dir), name="media")
 
 
 @app.get("/api/health", tags=["Health"])

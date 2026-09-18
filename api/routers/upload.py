@@ -1,10 +1,12 @@
 """
 Upload endpoints for generic media (e.g., images dropped into the Markdown editor).
 """
+import io
 import os
-import shutil
 import uuid
+
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
+from PIL import Image
 from django.conf import settings
 from django.contrib.auth.models import User
 
@@ -16,8 +18,26 @@ router = APIRouter()
 UPLOAD_DIR = os.path.join(settings.BASE_DIR, 'media', 'uploads')
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
-ALLOWED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+# Pillow's detected format → stored extension. The client's filename and Content-Type are never trusted.
+IMAGE_EXTENSIONS = {"JPEG": ".jpg", "PNG": ".png", "GIF": ".gif", "WEBP": ".webp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB
+
+
+def read_image(file: UploadFile, max_bytes: int) -> tuple[bytes, str]:
+    """Return (bytes, extension) for a real JPEG/PNG/GIF/WEBP no larger than max_bytes, else 400."""
+    # ponytail: Starlette has already spooled the whole body; cap request size at the proxy (Phase 7).
+    contents = file.file.read(max_bytes + 1)
+    if len(contents) > max_bytes:
+        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {max_bytes // (1024 * 1024)}MB.")
+    try:
+        with Image.open(io.BytesIO(contents)) as image:
+            image_format = image.format
+            image.verify()
+    except Exception:
+        image_format = None
+    if image_format not in IMAGE_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only JPEG, PNG, GIF, and WEBP images are allowed.")
+    return contents, IMAGE_EXTENSIONS[image_format]
 
 
 @router.post("/image")
@@ -28,22 +48,9 @@ def upload_image(
     current_user: User = Depends(get_current_user),
 ):
     """Upload an image to be used in a markdown post."""
-    if file.content_type not in ALLOWED_TYPES:
-        raise HTTPException(status_code=400, detail="Only JPEG, PNG, GIF, and WEBP images are allowed.")
-
-    file.file.seek(0, 2)
-    file_size = file.file.tell()
-    file.file.seek(0)
-
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="File too large. Maximum size is 5MB.")
-
-    # Generate unique filename
-    ext = os.path.splitext(file.filename)[1]
+    contents, ext = read_image(file, MAX_FILE_SIZE)
     filename = f"{uuid.uuid4().hex}{ext}"
-    filepath = os.path.join(UPLOAD_DIR, filename)
-
-    with open(filepath, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    with open(os.path.join(UPLOAD_DIR, filename), "wb") as buffer:
+        buffer.write(contents)
 
     return {"url": f"{settings.MEDIA_URL}uploads/{filename}"}

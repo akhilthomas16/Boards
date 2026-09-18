@@ -3,12 +3,17 @@ User profile API endpoints — view profile, update profile, upload avatar.
 """
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from django.contrib.auth.models import User
+import uuid
+
+from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
+from django.core.validators import URLValidator
 from pydantic import BaseModel
 from typing import Optional
 
 from ..auth import get_current_user
 from ..limiter import limiter
+from .upload import read_image
 
 router = APIRouter()
 
@@ -108,6 +113,12 @@ def update_profile(
     if data.location is not None:
         profile.location = data.location
     if data.website is not None:
+        # Rendered as a link: anything but http(s) (javascript:, data:) is an XSS vector.
+        try:
+            if data.website:
+                URLValidator(schemes=["http", "https"])(data.website)
+        except ValidationError:
+            raise HTTPException(status_code=400, detail="Website must be an http:// or https:// URL")
         profile.website = data.website
     profile.save()
     return _profile_to_response(current_user)
@@ -119,27 +130,15 @@ def upload_avatar(
     current_user: User = Depends(get_current_user),
 ):
     """Upload a profile avatar image."""
-    # Validate file type
-    allowed_types = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
-    if file.content_type not in allowed_types:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid file type. Allowed: {', '.join(allowed_types)}"
-        )
-
-    # Validate file size (max 2MB)
-    contents = file.file.read()
-    if len(contents) > 2 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large. Max 2MB.")
-
+    contents, ext = read_image(file, 2 * 1024 * 1024)
     profile = current_user.profile
 
     # Delete old avatar
     if profile.avatar:
         profile.avatar.delete(save=False)
 
-    # Save new avatar
-    filename = f"{current_user.username}_{file.filename}"
+    # Save new avatar. A fresh name per upload, so browsers don't keep showing the cached old one.
+    filename = f"{uuid.uuid4().hex}{ext}"
     profile.avatar.save(filename, ContentFile(contents), save=True)
 
     return _profile_to_response(current_user)
