@@ -17,6 +17,8 @@ interface MarkdownEditorProps {
     onChange: (val: string) => void;
     placeholder?: string;
     maxLength?: number;
+    id?: string;  // pair with a <label htmlFor>
+    ariaLabel?: string;  // when there is no visible label
 }
 
 export default function MarkdownEditor({
@@ -24,6 +26,8 @@ export default function MarkdownEditor({
     onChange,
     placeholder = 'Write your message... (You can drag & drop or paste images)',
     maxLength = 4000,
+    id,
+    ariaLabel = 'Message',
 }: MarkdownEditorProps) {
     const [tab, setTab] = useState<'write' | 'preview'>('write');
     const [isUploading, setIsUploading] = useState(false);
@@ -185,6 +189,8 @@ export default function MarkdownEditor({
                 {tab === 'write' ? (
                     <div style={{ position: 'relative' }}>
                         <textarea
+                            id={id}
+                            aria-label={id ? undefined : ariaLabel}
                             ref={textareaRef}
                             className="form-textarea"
                             value={value}

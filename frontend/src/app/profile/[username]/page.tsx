@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
-import api, { API_BASE } from '@/lib/api';
+import api from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 
 interface Profile {
@@ -117,7 +117,7 @@ export default function ProfilePage() {
                                 {profile?.avatar_url ? (
                                     // eslint-disable-next-line @next/next/no-img-element
                                     <img
-                                        src={`${API_BASE}${profile.avatar_url}`}
+                                        src={profile.avatar_url}
                                         alt={profile.username}
                                         className="profile-avatar-img"
                                     />
@@ -174,8 +174,9 @@ export default function ProfilePage() {
                             {editing ? (
                                 <div className="fade-in">
                                     <div className="form-group">
-                                        <label className="form-label">Bio</label>
+                                        <label className="form-label" htmlFor="profile-bio">Bio</label>
                                         <textarea
+                                            id="profile-bio"
                                             className="form-textarea"
                                             value={bio}
                                             onChange={(e) => setBio(e.target.value)}
@@ -185,8 +186,9 @@ export default function ProfilePage() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Location</label>
+                                        <label className="form-label" htmlFor="profile-location">Location</label>
                                         <input
+                                            id="profile-location"
                                             type="text"
                                             className="form-input"
                                             value={location}
@@ -195,8 +197,9 @@ export default function ProfilePage() {
                                         />
                                     </div>
                                     <div className="form-group">
-                                        <label className="form-label">Website</label>
+                                        <label className="form-label" htmlFor="profile-website">Website</label>
                                         <input
+                                            id="profile-website"
                                             type="url"
                                             className="form-input"
                                             value={website}
