@@ -52,7 +52,7 @@ def test_post_hits_link_to_their_topic(client, corpus):
     assert body["counts"] == {"post": 3}
     assert body["total"] == 3
     topic_id = corpus["topics"][0].id
-    for result, post in zip(body["results"], corpus["posts"]):
+    for result, post in zip(body["results"], corpus["posts"], strict=True):
         assert result["id"] == post.id
         assert result["url"] == f"/topics/{topic_id}"
         assert result["title"] == corpus["topics"][0].subject

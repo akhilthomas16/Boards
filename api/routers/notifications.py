@@ -1,23 +1,21 @@
 """
 Notifications router — handles WebSockets and notification CRUD.
 """
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
-from starlette.concurrency import run_in_threadpool
 import asyncio
 import contextlib
+import logging
+from datetime import datetime
+
 import redis.asyncio as aioredis
 from django.conf import settings
+from django.contrib.auth.models import User
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel
-from typing import List
-from datetime import datetime
-import json
-import logging
+from starlette.concurrency import run_in_threadpool
 
 from ..auth import ACCESS_COOKIE, get_current_user, user_from_token
 from ..deps import paginate
 from ..schemas import Page
-from fastapi import Query
-from django.contrib.auth.models import User
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -36,7 +34,7 @@ class NotificationResponse(BaseModel):
 
 
 class NotificationListResponse(Page):
-    results: List[NotificationResponse]
+    results: list[NotificationResponse]
 
 
 class UnreadCount(BaseModel):

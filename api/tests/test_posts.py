@@ -69,7 +69,8 @@ def test_reply_moves_topic_to_the_top_of_the_board(topic_by, member):
     alice, older_id, _ = topic_by("alice")
     board_id = Topic.objects.get(pk=older_id).board_id
     newer_id = alice.post(f"/api/topics/board/{board_id}", json={"subject": "Newer", "message": "m"}).json()["id"]
-    listed = lambda: [t["id"] for t in alice.get(f"/api/topics/board/{board_id}").json()["results"]]
+    def listed():
+        return [t["id"] for t in alice.get(f"/api/topics/board/{board_id}").json()["results"]]
     assert listed() == [newer_id, older_id]
 
     assert member("bob").post(f"/api/posts/topic/{older_id}", json={"message": "reply"}).status_code == 201

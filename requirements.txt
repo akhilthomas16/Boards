@@ -1,6 +1,8 @@
 # Core
 Django>=5.2,<6.0
 python-decouple>=3.8
+gunicorn>=22.0  # WSGI (Django admin) and, with UvicornWorker, ASGI (the API)
+whitenoise>=6.6  # serves the admin's static files without a separate web server
 
 # Database
 psycopg2-binary>=2.9
@@ -9,7 +11,7 @@ psycopg2-binary>=2.9
 fastapi>=0.115
 uvicorn[standard]>=0.34
 slowapi>=0.1.9
-python-jose[cryptography]>=3.3
+PyJWT>=2.9  # python-jose was dropped: it pulls ecdsa, which has an unfixed advisory
 python-multipart>=0.0.9
 email-validator>=2.0  # pydantic EmailStr
 
@@ -22,5 +24,5 @@ openai>=1.0
 
 # Utilities
 Pillow>=10.0  # UserProfile.avatar ImageField and upload handling
-cryptography==42.0.5
+cryptography>=46.0.6  # Fernet for cms.SiteSetting; older releases carry advisories
 dj-database-url==3.1.2

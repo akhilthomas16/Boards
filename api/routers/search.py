@@ -3,8 +3,8 @@ Search across boards, topics and posts (Postgres LIKE via the ORM).
 """
 from typing import Literal
 
-from fastapi import APIRouter, Query
 from django.db.models import Q
+from fastapi import APIRouter, Query
 
 from ..schemas import SearchResponse, SearchResult
 
@@ -15,7 +15,7 @@ SearchType = Literal["all", "board", "topic", "post"]
 
 def _sections(q: str, type: SearchType):
     """(kind, queryset, row → SearchResult) for each type the query asks for, in display order."""
-    from boards.models import Board, Topic, Post
+    from boards.models import Board, Post, Topic
 
     sections = [
         ("board", Board.objects.filter(Q(name__icontains=q) | Q(description__icontains=q)),

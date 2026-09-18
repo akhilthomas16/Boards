@@ -1,26 +1,27 @@
 """
 Post API endpoints — list, create, update, delete posts within topics.
 """
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
-from django.db.models import Count, F
+from django.db.models import Count, F, QuerySet
 from django.db.models.functions import Greatest
-
-from boards.models import Topic, Post
-from ..auth import get_current_user, optional_user
-from ..schemas import PostCreate, PostListResponse, PostUpdate, PostResponse, UserBrief
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
+
+from boards.models import Post, Topic
+
+from ..auth import get_current_user, optional_user
 from ..deps import paginate
 from ..mentions import notify_mentions
+from ..schemas import PostCreate, PostListResponse, PostResponse, PostUpdate
 from .profiles import get_user_badges
 
 router = APIRouter()
 
 
-def _posts(topic_id: int) -> "QuerySet[Post]":
+def _posts(topic_id: int) -> QuerySet[Post]:
     """Everything _post_to_response needs, without a query per post.
 
     order_by is explicit because aggregation drops Meta.ordering.
@@ -147,7 +148,7 @@ def update_post(
 
     post.message = data.message
     post.updated_by = current_user
-    post.updated_at = datetime.now(timezone.utc)
+    post.updated_at = datetime.now(UTC)
     post.save()
     notify_mentions(data.message, current_user, f"/topics/{post.topic_id}#post-{post.id}",
                     skip_user_ids={post.created_by_id})

@@ -3,22 +3,23 @@ FastAPI application — REST API for the Hash Out forum.
 Run separately: uvicorn api.main:app --port 8001 --reload
 """
 import os
+
 import django
 
 # Bootstrap Django ORM before importing models
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'hash_out.settings')
 django.setup()
 
-from fastapi import FastAPI, Request
+from django.conf import settings
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from django.conf import settings
 
-from .limiter import limiter
-from .routers import boards, topics, posts, search, content, profiles, notifications, upload
 from .auth import router as auth_router
+from .limiter import limiter
+from .routers import boards, content, notifications, posts, profiles, search, topics, upload
 
 app = FastAPI(
     title="Hash Out API",

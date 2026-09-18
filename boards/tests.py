@@ -1,6 +1,7 @@
 """Model-level behaviour. Needs Postgres with CREATEDB on the role."""
 import pytest
 from django.contrib.auth.models import User
+from django.core.management import call_command
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
@@ -41,3 +42,10 @@ def test_reply_bumps_topic_to_the_top():
 
     Post.objects.create(message="reply", topic=older, created_by=user)
     assert list(Topic.objects.values_list("subject", flat=True)) == ["older", "newer"]
+
+
+def test_seed_fixture_loads():
+    """The fixture a fresh deployment uses so the home page isn't empty."""
+    call_command("loaddata", "seed_boards", verbosity=0)
+    assert Board.objects.count() == 3
+    assert Board.objects.filter(slug="general").exists()

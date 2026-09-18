@@ -5,10 +5,10 @@ import io
 import os
 import uuid
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
-from PIL import Image
 from django.conf import settings
 from django.contrib.auth.models import User
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
+from PIL import Image
 
 from ..auth import get_current_user
 from ..limiter import limiter

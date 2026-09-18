@@ -1,15 +1,14 @@
 """
 User profile API endpoints — view profile, update profile, upload avatar.
 """
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
-from django.contrib.auth.models import User
 import uuid
 
+from django.contrib.auth.models import User
 from django.core.exceptions import ValidationError
 from django.core.files.base import ContentFile
 from django.core.validators import URLValidator
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
-from typing import Optional
 
 from ..auth import get_current_user
 from ..limiter import limiter
@@ -23,7 +22,7 @@ class PublicProfileResponse(BaseModel):
     user_id: int
     username: str
     bio: str
-    avatar_url: Optional[str]
+    avatar_url: str | None
     location: str
     website: str
     post_count: int
@@ -42,9 +41,9 @@ class ProfileResponse(PublicProfileResponse):
 
 
 class ProfileUpdate(BaseModel):
-    bio: Optional[str] = None
-    location: Optional[str] = None
-    website: Optional[str] = None
+    bio: str | None = None
+    location: str | None = None
+    website: str | None = None
 
 
 def get_user_badges(profile, post_count: int | None = None) -> list[str]:

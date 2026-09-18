@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phases 0–5 ✅ merged (PR #5–#10). Phase 6 ✅ done on `feat/phase-6-complete` — moderation, post edit/delete, mentions, notifications, settings, search tabs and email verification all exist end to end. **Next: Phase 7** (production shape and CI), the last phase.
+**Status:** ✅ **All seven phases done.** Phases 0–6 merged (PR #5–#11); Phase 7 done on `feat/phase-7-production`. The app is deployable: hashed dependency lock, non-root images, gunicorn, WhiteNoise, split compose files and CI. Remaining work is listed under *What this plan did not do*.
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 6. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 7. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -359,26 +359,60 @@ npm run build · tsc --noEmit · eslint (0 errors) · manage.py check ·
 
 ---
 
-## Phase 7 — Production shape and CI (2–3 days)
+## Phase 7 — Production shape and CI ✅ Done
 
-**Nothing in this repo can currently be deployed:** compose runs `runserver` and `uvicorn --reload`, the backend `Dockerfile` has no `CMD` and no `collectstatic`, the frontend `Dockerfile` ships `next dev`, both containers run as root, and there is no gunicorn, no whitenoise, and no CI at all.
+**Completed 2026-09-18** on `feat/phase-7-production`. Both images were built and the production
+stack was run end to end.
 
-- **Reverse proxy:** cap request bodies (`client_max_body_size 6m`) — uploads are spooled in full before the 5 MB check (from Phase 3). Run uvicorn with `--forwarded-allow-ips` set to the proxy so rate limits see client IPs (from Phase 2).
-- `requirements.txt` — add `gunicorn>=22`, `whitenoise>=6.6`. Insert `WhiteNoiseMiddleware` immediately after `SecurityMiddleware` (`settings.py:71`) and set the manifest static storage.
-- `settings.py:19` — flip `DEBUG` to `default=False`, and add the hardening settings that **do not exist at all**, guarded by `if not DEBUG`: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`, `X_FRAME_OPTIONS`, `SESSION_COOKIE_SECURE/HTTPONLY/SAMESITE`, `CSRF_COOKIE_SECURE`. Note `hash_out/urls.py:29`'s media branch goes dead with `DEBUG=False` — WhiteNoise or the proxy must serve it.
-- `Dockerfile` — delete `:9-11` (`build-essential` + `libpq-dev`; `psycopg2-binary` ships wheels — verify one clean build doesn't fall back to source), add `useradd --uid 10001 app` + `USER app`, add `RUN python manage.py collectstatic --noinput` **after** `COPY . .`, add a `CMD` with gunicorn.
-- `frontend/next.config.ts` — `output: 'standalone'`; rewrite `frontend/Dockerfile` as three stages (deps → builder running `npm run build` with `NEXT_PUBLIC_*` as build **ARGs**, since Next inlines them at build time → runner copying `.next/standalone` + `.next/static` + `public`, `USER node`, `CMD ["node","server.js"]`).
-- Split compose: shared definitions in `docker-compose.yml`, dev shape (reload servers, `.:/app` bind mounts) in `docker-compose.override.yml`, production in `docker-compose.prod.yml`. **Drop the `.:/app` bind mounts in production** — they re-mount the host tree, including the `.env` that `.dockerignore` deliberately excluded from the image.
-- Healthchecks: `/api/health` already exists (`api/main.py:61`) and nothing uses it. Add it to the api service and make the frontend `depends_on: {condition: service_healthy}`.
-- **Supply chain:** 19 of 21 requirements float on `>=` with no lockfile. `pip-compile --generate-hashes`, `pip install --require-hashes` in the Dockerfile, bump `cryptography==42.0.5` (pinned old — run `pip-audit` rather than trusting any assertion about it), add `pip-audit` to CI.
-- **CI** (`.github/workflows/ci.yml`) with postgres + redis service containers:
-  1. `python -c "import api.main"` — the cheap guard against the entire `slowapi` class of breakage
-  2. `ruff` (add `[tool.ruff]` to `pyproject.toml`)
-  3. `pytest` (the CI Postgres service runs as a superuser, so the local `CREATEDB` problem doesn't apply)
-  4. `python manage.py makemigrations --check --dry-run`
-  5. `python manage.py check --deploy`
-  6. `cd frontend && npm ci && tsc --noEmit && npm run build`
-- Rewrite `README.md`: it currently advertises HTMX (deleted), Elasticsearch and Celery (deleted), calls Redis a cache (it is required), never mentions `docker compose`, and omits the seed step. Add a seed fixture with three boards so a fresh deploy is not an empty home page.
+| Commit | What landed |
+|---|---|
+| `feat: production settings, gunicorn and whitenoise` | `DEBUG` defaults to **False**; an `if not DEBUG` block adds `SECURE_PROXY_SSL_HEADER`, SSL redirect, HSTS (1 year, preload), nosniff, referrer policy, `X_FRAME_OPTIONS=DENY`, secure/httpOnly/SameSite session and CSRF cookies, and `CSRF_TRUSTED_ORIGINS`. WhiteNoise middleware + `CompressedManifestStaticFilesStorage` serve the admin's assets. `gunicorn` and `whitenoise` added |
+| `chore(deps): lock with hashes, drop python-jose, bump cryptography` | `requirements.lock` (52 packages, `--generate-hashes`), installed with `--require-hashes` in the image and CI. `python-jose` → **PyJWT**: jose pulls `ecdsa`, whose advisory has no fix. `cryptography` 42.0.5 → `>=46.0.6` (six advisories). `pip-audit` on the lock: clean |
+| `feat(docker): non-root images, standalone frontend, split compose` | Backend image: no build toolchain (all wheels), `collectstatic` at build, uid 10001, gunicorn `CMD`. Frontend: three stages (deps → builder → runner), `output: "standalone"`, `NEXT_PUBLIC_API_URL` as a build ARG, `USER node`. Compose split into shared / `override` (dev bind mounts and reloaders) / `prod` (no mounts, gunicorn with uvicorn workers, `--forwarded-allow-ips`, restart policies). API healthcheck on `/api/health`, and the frontend waits for it |
+| `ci: lint, test, deploy checks and dependency audit` | `.github/workflows/ci.yml`: backend job (Postgres + Redis services) runs `import api.main`, `ruff`, `pytest`, `makemigrations --check`, `check --deploy --fail-level WARNING` with generated secrets, and `pip-audit`; frontend job runs `tsc`, `eslint` and `next build`. `[tool.ruff]` in `pyproject.toml` |
+| `docs: seed fixture and a README for deploying` | `boards/fixtures/seed_boards.json` (three starter boards, with a test that it still loads) and a rewritten README: Docker and non-Docker quick starts, the checks, and a production section (secrets, proxy, `client_max_body_size`, rebuild-on-`NEXT_PUBLIC_*`, relocking) |
+
+### Where it departed from the original plan
+
+- **`python-jose` was replaced by PyJWT** (not in the plan). `pip-audit` flagged its transitive `ecdsa` dependency, and that advisory has no fixed version. The JWT code is ~5 lines different; all tests passed unchanged.
+- **`uv pip compile` generated the lock**, not `pip-compile` — `uv` was already on the machine and the output format is the same. The command is in the README.
+- **Ruff runs with `E,F,I,B,UP`**, and three ignores that are documented in `pyproject.toml`: `B008` (FastAPI's `Depends()` defaults), `B904` (handlers translating exceptions), and `E402` for the two files that must call `django.setup()` before importing models. Fixing the rest turned up three broken annotations (`QuerySet` was never imported — a string annotation nobody evaluated), plus unused imports and stale typing.
+- **The dev compose stops the frontend image at its `deps` stage** rather than building the production bundle for a bind-mounted dev server.
+- **`check --deploy` runs with `--fail-level WARNING`** and freshly generated secrets, so a short or obviously-generated `SECRET_KEY` fails CI.
+
+### Found by actually running the production stack
+
+- **The API crashed on boot as a non-root user.** The `media_data` volume mounts over `/app/media`, and a fresh named volume inherits the image's ownership — which was root, so `upload.py` could not create `media/uploads`. The image now creates `media/uploads` and `media/avatars` owned by the app user. **Upgrading an existing deployment needs a one-time `chown -R 10001:10001 /app/media` on the volume.**
+
+### Exit criteria
+
+```
+docker compose build (both images)                         ✅ backend 288MB, frontend built
+docker compose -f … -f docker-compose.prod.yml up -d       ✅ postgres, redis, fastapi (healthy), frontend
+  migrate + loaddata seed_boards                            ✅ 3 boards
+  GET :8001/api/health · /api/boards/                       ✅ 200, the seeded boards
+  GET :3000/ (next start, standalone)                       ✅ 200 in 0.15s, renders the seeded boards
+  admin with DEBUG=False and real secrets                   ✅ 200, /static/admin/css/base.<hash>.css
+  that asset through WhiteNoise                             ✅ 200, immutable cache, nosniff
+prod compose bind mounts of the repo                       ✅ none
+pip-audit -r requirements.lock --require-hashes            ✅ no known vulnerabilities
+ruff check .                                               ✅ all checks passed
+pytest                                                     ✅ 86 passed
+manage.py check --deploy --fail-level WARNING              ✅ no issues
+tsc --noEmit · eslint (0 errors) · npm run build           ✅
+```
+
+*(The images and volumes from this run were removed afterwards — the disk was at 99%.)*
+
+---
+
+## What this plan did not do
+
+- **No deployment target.** There is no nginx/Caddy config, no TLS, no host. The README says what the proxy must do (`client_max_body_size`, `X-Forwarded-Proto`, `TRUSTED_PROXY_IPS`).
+- **No real email.** `EMAIL_BACKEND` still defaults to the console, so verification and reset codes are printed, not delivered. Signup does not work for other people until SMTP is configured.
+- **The database is still `boards_db`/`boards_user`** — the optional rename from the Phase 1 notes.
+- **Known ceilings, all recorded in their phases:** anonymous visitors cost two auth requests per page load; the WebSocket only checks auth at connect; refresh-token reuse has a 30-second grace window; search is `icontains`, not full-text; `/notifications` and `/settings` are client-rendered.
+- **Not covered:** rate limiting per user (only per IP), moderation of posts beyond delete, audit logging, backups, and any load testing.
 
 ---
 
@@ -417,11 +451,11 @@ Phase 3  1-2 d visible bug sweep     ✅ done 2026-09-17
 Phase 4  1-2 d 6 services → 3        ✅ done 2026-09-18
 Phase 5  2-3 d server components      ✅ done 2026-09-18
 Phase 6  3-5 d complete the product  ✅ done 2026-09-18
-Phase 7  2-3 d production + CI
+Phase 7  2-3 d production + CI       ✅ done 2026-09-18
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Only Phase 7 left:** production shape and CI. Needs disk space for image builds and a real SMTP host, or signup emails go nowhere.
+**All phases are done.** What is left before this is live: a proxy with TLS, a real SMTP host, and a machine to run it on.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.

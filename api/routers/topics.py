@@ -4,16 +4,17 @@ Topic API endpoints — list, create, retrieve topics within boards.
 from functools import reduce
 from operator import or_
 
-from django.db.models import Count, F, Q
-from fastapi import APIRouter, Depends, HTTPException, status, Query
-from django.db import transaction
 from django.contrib.auth.models import User
+from django.db import transaction
+from django.db.models import Count, F, Q, QuerySet
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from boards.models import Board, Topic, Post
+from boards.models import Board, Post, Topic
+
 from ..auth import get_current_user
-from ..schemas import TopicCreate, TopicListResponse, TopicModerate, TopicResponse, UserBrief
 from ..deps import paginate
 from ..mentions import notify_mentions
+from ..schemas import TopicCreate, TopicListResponse, TopicModerate, TopicResponse
 
 router = APIRouter()
 
@@ -28,7 +29,7 @@ def _normalize_tags(raw: str | None) -> str:
     return ",".join(seen)[:255]
 
 
-def _topics() -> "QuerySet[Topic]":
+def _topics() -> QuerySet[Topic]:
     """Reply count as an annotation: one query for any number of topics.
 
     order_by is explicit because aggregation drops Meta.ordering.

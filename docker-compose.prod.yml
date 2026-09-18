@@ -1,0 +1,27 @@
+# Production overlay — no bind mounts (they would re-mount the host tree, including the .env that
+# .dockerignore keeps out of the image), no reloaders, and restart policies.
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+# Run migrations once per deploy:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml run --rm fastapi python manage.py migrate
+services:
+  postgres:
+    restart: unless-stopped
+
+  redis:
+    restart: unless-stopped
+
+  django:
+    restart: unless-stopped
+    command: ["gunicorn", "hash_out.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "3"]
+
+  fastapi:
+    restart: unless-stopped
+    # Uvicorn workers under gunicorn; --forwarded-allow-ips so rate limits see the real client IP.
+    command: >
+      gunicorn api.main:app
+      --worker-class uvicorn.workers.UvicornWorker
+      --bind 0.0.0.0:8001 --workers 3
+      --forwarded-allow-ips ${TRUSTED_PROXY_IPS:-127.0.0.1}
+
+  frontend:
+    restart: unless-stopped

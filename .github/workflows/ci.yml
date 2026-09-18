@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: boards_db
+          POSTGRES_USER: boards_user
+          POSTGRES_PASSWORD: boards_pass
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U boards_user -d boards_db"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      DEBUG: "True"  # the suite runs with development settings
+      DATABASE_URL: postgres://boards_user:boards_pass@localhost:5432/boards_db
+      REDIS_URL: redis://localhost:6379/0
+      SECRET_KEY: ci-only-not-a-real-secret
+      JWT_SECRET_KEY: ci-only-not-a-real-secret
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install --require-hashes --no-deps -r requirements.lock
+          pip install -r requirements-dev.txt
+
+      - name: Import the API
+        # The cheapest guard against an undeclared dependency breaking every request.
+        run: python -c "import api.main"
+
+      - run: ruff check .
+
+      - run: pytest -q
+
+      - name: Migrations are complete
+        run: python manage.py makemigrations --check --dry-run
+
+      - name: Deployment checks
+        env:
+          DEBUG: "False"
+          ALLOWED_HOSTS: example.com
+        run: |
+          # Throwaway secrets: check --deploy rejects short or obviously generated ones.
+          export SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(50))")
+          export JWT_SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(50))")
+          export FERNET_KEY=$(python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
+          python manage.py check --deploy --fail-level WARNING
+
+      - name: Audit dependencies
+        run: pip-audit -r requirements.lock --require-hashes
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx eslint src
+      - run: npm run build
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8001
