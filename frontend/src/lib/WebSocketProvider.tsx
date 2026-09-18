@@ -4,14 +4,9 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
 import api, { API_BASE } from './api';
 import { useAuth } from './auth';
 
-export interface Notification {
-    id: number;
-    message: string;
-    link: string;
-    actor: string;
-    is_read: boolean;
-    created_at: string;
-}
+import type { Notification } from '@/types';
+
+export type { Notification };
 
 interface WebSocketContextType {
     notifications: Notification[];

@@ -10,7 +10,7 @@ interface BoardCardProps {
     description: string;
     postsCount: number;
     topicsCount: number;
-    lastPostAt: string | null;
+    lastPostAt?: string | null;
 }
 
 export default function BoardCard({

@@ -5,55 +5,8 @@ import BoardCard from '@/components/BoardCard';
 import AdBanner from '@/components/AdBanner';
 import Pagination from '@/components/Pagination';
 import Link from 'next/link';
-import { API_BASE } from '@/lib/api';
-
-interface Board {
-  id: number;
-  name: string;
-  slug: string;
-  description: string;
-  posts_count: number;
-  topics_count: number;
-  last_post_at: string | null;
-}
-
-interface BoardsResponse {
-  count: number;
-  page: number;
-  total_pages: number;
-  results: Board[];
-}
-
-interface Topic {
-  id: number;
-  subject: string;
-  slug: string;
-  board_id: number;
-  board_name: string;
-  starter: { id: number; username: string };
-  views_count: number;
-  replies_count: number;
-}
-
-async function getBoards(page: string): Promise<BoardsResponse> {
-  const res = await fetch(`${API_BASE}/api/boards/?page=${page}`, {
-    next: { revalidate: 60 },
-  });
-  if (!res.ok) {
-    throw new Error('Failed to fetch boards');
-  }
-  return res.json();
-}
-
-async function getTrendingTopics(): Promise<Topic[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/topics/trending`, { next: { revalidate: 60 } });
-    if (res.ok) return res.json();
-  } catch (e) {
-    console.error('Failed fetching trending topics', e);
-  }
-  return [];
-}
+import { fetchApi, fetchApiOr } from '@/lib/server-api';
+import type { Board, BoardList, Topic } from '@/types';
 
 export default async function HomePage(props: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
@@ -67,7 +20,10 @@ export default async function HomePage(props: {
   let error = '';
 
   try {
-    const [data, trending] = await Promise.all([getBoards(page), getTrendingTopics()]);
+    const [data, trending] = await Promise.all([
+      fetchApi<BoardList>(`/api/boards/?page=${page}`, 60),  // the board list changes slowly
+      fetchApiOr<Topic[]>('/api/topics/trending', [], 60),
+    ]);
     boards = data.results;
     totalPages = data.total_pages;
     trendingTopics = trending;

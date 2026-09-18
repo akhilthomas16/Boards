@@ -20,7 +20,7 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
             <ReactMarkdown
                 remarkPlugins={[remarkGfm]}
                 components={{
-                    a: ({ node, ...props }) => {
+                    a: (props) => {
                         const href = props.href || '';
                         const ytId = getYouTubeId(href);
 
@@ -41,8 +41,9 @@ export default function MarkdownRenderer({ content }: MarkdownRendererProps) {
                         // Default fallback for normal links
                         return <a {...props} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'none' }} />;
                     },
-                    img: ({ node, ...props }: any) => (
-                        <img {...props} style={{ maxWidth: '100%', borderRadius: 'var(--radius-md)', margin: '16px 0' }} loading="lazy" />
+                    img: (props) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img {...props} alt={props.alt ?? ''} style={{ maxWidth: '100%', borderRadius: 'var(--radius-md)', margin: '16px 0' }} loading="lazy" />
                     )
                 }}
             >
