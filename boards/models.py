@@ -1,5 +1,8 @@
 from django.db import models
 from django.contrib.auth.models import User
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+from django.utils import timezone
 from django.utils.text import slugify
 
 
@@ -69,6 +72,15 @@ class Post(models.Model):
 
     def __str__(self):
         return f'Post by {self.created_by.username} on {self.topic.subject}'
+
+
+@receiver(post_save, sender=Post)
+def bump_topic_on_reply(sender, instance, created, **kwargs):
+    """A new post moves its topic to the top of the default ordering."""
+    if created:
+        # .update(), not save(): no auto_now side effects, no re-fetch, no race with a concurrent reply.
+        Topic.objects.filter(pk=instance.topic_id).update(last_updated=timezone.now())
+
 
 class Reaction(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='reactions')

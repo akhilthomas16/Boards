@@ -59,18 +59,21 @@ export default function BoardTopicsPage() {
     const tableRef = useRef<HTMLTableSectionElement>(null);
 
     useEffect(() => {
+        let cancelled = false;  // a slower response for the previous page must not overwrite this one
         Promise.all([
             api.get<Board>(`/api/boards/${boardId}`),
             api.get<TopicsResponse>(`/api/topics/board/${boardId}?page=${page}`),
         ])
             .then(([boardData, topicsData]) => {
+                if (cancelled) return;
                 setBoard(boardData);
                 setTopics(topicsData.results);
                 setTotalPages(topicsData.total_pages);
             })
-            .catch((err) => setError(err.message))
-            .finally(() => setLoading(false));
-    }, [boardId]);
+            .catch((err) => { if (!cancelled) setError(err.message); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [boardId, page]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -139,8 +142,9 @@ export default function BoardTopicsPage() {
                             </h3>
                             <form onSubmit={handleSubmit}>
                                 <div className="form-group">
-                                    <label className="form-label">Subject</label>
+                                    <label className="form-label" htmlFor="topic-subject">Subject</label>
                                     <input
+                                        id="topic-subject"
                                         type="text"
                                         className="form-input"
                                         value={formSubject}
@@ -151,8 +155,9 @@ export default function BoardTopicsPage() {
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Tags (Optional)</label>
+                                    <label className="form-label" htmlFor="topic-tags">Tags (Optional)</label>
                                     <input
+                                        id="topic-tags"
                                         type="text"
                                         className="form-input"
                                         value={formTags}
@@ -162,8 +167,9 @@ export default function BoardTopicsPage() {
                                     />
                                 </div>
                                 <div className="form-group">
-                                    <label className="form-label">Message</label>
+                                    <label className="form-label" htmlFor="topic-message">Message</label>
                                     <MarkdownEditor
+                                        id="topic-message"
                                         value={formMessage}
                                         onChange={setFormMessage}
                                         placeholder="Share your thoughts using markdown..."

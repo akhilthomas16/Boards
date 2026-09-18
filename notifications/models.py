@@ -26,7 +26,7 @@ def notify_websocket(sender, instance, created, **kwargs):
     """Publish the new notification to a Redis Pub/Sub channel for FastAPI to consume."""
     if created:
         try:
-            r = redis.from_url(settings.CACHES['default']['LOCATION'])
+            r = redis.from_url(settings.REDIS_URL)
             payload = {
                 "id": instance.id,
                 "message": instance.message,

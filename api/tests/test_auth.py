@@ -8,30 +8,13 @@ from fastapi.testclient import TestClient
 from jose import jwt
 from starlette.websockets import WebSocketDisconnect
 
-from api.limiter import limiter
 from api.main import app
 
 GOOD_PASSWORD = "plum-Harbor-42"
 NEW_PASSWORD = "new-Harbor-77"
 FORGOT_MESSAGE = "If an account with that email exists, a reset code has been sent."
 
-# transaction=True: TestClient runs sync endpoints in worker threads with their own DB connections,
-# which can't see rows inside a test-wrapping transaction.
-pytestmark = pytest.mark.django_db(transaction=True)
-
-
-@pytest.fixture(autouse=True)
-def _isolate(settings):
-    settings.CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}}
-    settings.DEBUG = True
-    limiter.enabled = False
-    yield
-    limiter.enabled = True
-
-
-@pytest.fixture
-def client():
-    return TestClient(app)
+pytestmark = pytest.mark.django_db(transaction=True)  # see conftest.py
 
 
 def signup(client, username="alice", email="alice@example.com", password=GOOD_PASSWORD):

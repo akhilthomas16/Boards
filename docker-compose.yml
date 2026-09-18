@@ -123,6 +123,7 @@ services:
       - ./frontend/public:/app/public
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - API_INTERNAL_URL=http://fastapi:8001  # server-side: the /media rewrite runs inside this container
     depends_on:
       - fastapi
 

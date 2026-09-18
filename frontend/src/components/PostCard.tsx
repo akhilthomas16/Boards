@@ -35,7 +35,9 @@ export default function PostCard({
             if (data.action === 'removed') {
                 setReactions(prev => ({ ...prev, [emoji]: Math.max(0, (prev[emoji] || 1) - 2) })); // Compensate optimistic
             }
-        } catch (err) { }
+        } catch {
+            setReactions(prev => ({ ...prev, [emoji]: Math.max(0, (prev[emoji] || 1) - 1) }));  // undo the optimistic +1
+        }
     };
 
     return (

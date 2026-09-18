@@ -4,7 +4,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useAuth } from '@/lib/auth';
 import { useWebSockets } from '@/lib/WebSocketProvider';
 
@@ -14,9 +14,24 @@ export default function Navbar() {
     const [menuOpen, setMenuOpen] = useState(false);
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [notifOpen, setNotifOpen] = useState(false);
+    const navRef = useRef<HTMLElement>(null);
+
+    // Any open menu closes on Escape or a click outside the navbar.
+    useEffect(() => {
+        if (!menuOpen && !dropdownOpen && !notifOpen) return;
+        const closeAll = () => { setMenuOpen(false); setDropdownOpen(false); setNotifOpen(false); };
+        const onPointer = (e: MouseEvent) => { if (!navRef.current?.contains(e.target as Node)) closeAll(); };
+        const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeAll(); };
+        document.addEventListener('mousedown', onPointer);
+        document.addEventListener('keydown', onKey);
+        return () => {
+            document.removeEventListener('mousedown', onPointer);
+            document.removeEventListener('keydown', onKey);
+        };
+    }, [menuOpen, dropdownOpen, notifOpen]);
 
     return (
-        <nav className="navbar">
+        <nav className="navbar" ref={navRef}>
             <div className="container navbar-inner">
                 <Link href="/" className="navbar-brand">
                     <span className="brand-icon">◆</span>
@@ -41,6 +56,7 @@ export default function Navbar() {
                     className="navbar-toggle"
                     onClick={() => setMenuOpen(!menuOpen)}
                     aria-label="Toggle navigation"
+                    aria-expanded={menuOpen}
                 >
                     <span className="toggle-bar"></span>
                     <span className="toggle-bar"></span>
@@ -56,6 +72,9 @@ export default function Navbar() {
                                     className="btn btn-ghost"
                                     onClick={() => { setNotifOpen(!notifOpen); setDropdownOpen(false); }}
                                     style={{ padding: '8px', position: 'relative' }}
+                                    aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+                                    aria-haspopup="true"
+                                    aria-expanded={notifOpen}
                                 >
                                     <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
@@ -106,6 +125,8 @@ export default function Navbar() {
                             <button
                                 className="user-button"
                                 onClick={() => { setDropdownOpen(!dropdownOpen); setNotifOpen(false); }}
+                                aria-haspopup="true"
+                                aria-expanded={dropdownOpen}
                             >
                                 <span className="avatar">{user.username[0].toUpperCase()}</span>
                                 {user.username}
@@ -117,9 +138,6 @@ export default function Navbar() {
                                 <div className="dropdown-menu">
                                     <Link href={`/profile/${user.username}`} className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                                         My Profile
-                                    </Link>
-                                    <Link href="/settings" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
-                                        Settings
                                     </Link>
                                     <div className="dropdown-divider"></div>
                                     <button className="dropdown-item logout" onClick={() => { logout(); setDropdownOpen(false); }}>

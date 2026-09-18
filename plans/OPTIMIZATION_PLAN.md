@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phases 0 and 1 ✅ merged (PR #5, #6). Phase 2 ✅ done on `feat/phase-2-auth` — tokens live in httpOnly cookies, a deactivated user is locked out everywhere, refresh tokens rotate with reuse detection. **Next: Phase 3** (or 4 → 7 for the fast path).
+**Status:** Phases 0–2 ✅ merged (PR #5, #6, #7). Phase 3 ✅ done on `feat/phase-3-bug-sweep` — uploads are validated by content, pagination/replies/reactions behave, the notification socket survives restarts and notices disconnects. **Next: Phase 4.**
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 2. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 3. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -187,33 +187,54 @@ manage.py check · makemigrations --check · tsc --noEmit · docker compose conf
 
 ---
 
-## Phase 3 — Fix what a user hits in the first ten minutes (1–1½ days)
+## Phase 3 — Fix what a user hits in the first ten minutes ✅ Done
 
-Small local edits. No refactors.
+**Completed 2026-09-17** on `feat/phase-3-bug-sweep`.
 
-**Upload path**
-- `api/routers/upload.py:49` returns `/media/uploads/<uuid>.png` — origin-relative, so `MarkdownEditor.tsx:140` inserts a URL that resolves against **port 3000** and 404s. Every uploaded image in every post is broken. Cleanest single fix: add a `/media/:path*` rewrite to `frontend/next.config.ts` pointing at `NEXT_PUBLIC_API_URL` — then stored markdown stays portable *and* the manual prefix at `profile/[username]/page.tsx:135` can go.
-- `upload.py:42` and `profiles.py:137` derive the stored extension from the **client's filename** while validating only the **client's** `content_type`. `evil.html` with a spoofed `image/png` header lands in a directory served by `StaticFiles` (`api/main.py:56-58`). Map the validated content type to an extension via a dict, add `PIL.Image.open(io.BytesIO(contents)).verify()`, and in `profiles.py` stop embedding the client filename at all (`f"{current_user.username}{ext}"`). Serve `/media` with a forced `Content-Type` and `X-Content-Type-Options: nosniff`.
-- The 5 MB check runs *after* Starlette has spooled the whole body. Enforce `client_max_body_size 6m` at the edge.
+| Commit | What landed |
+|---|---|
+| `fix(api): validate uploads by image content and harden /media` | `read_image()` in `upload.py`, shared by post images and avatars: size cap, `Image.open().verify()`, extension from **Pillow's detected format** — client filename and Content-Type are ignored. Avatars get a UUID name (no client filename, no stale browser cache). `/media` is a `StaticFiles` subclass adding `X-Content-Type-Options: nosniff` and `Content-Security-Policy: default-src 'none'; sandbox`, and serving anything that isn't JPEG/PNG/GIF/WEBP as `application/octet-stream`. Profile `website` must be `http(s)://`. Shared API test fixtures in `api/tests/conftest.py` |
+| `fix(boards): bump topics on reply, atomic counters, safe slug migration` | `post_save` receiver on new `Post` → `Topic…update(last_updated=now)`. `views_count` and `reputation_score` via `F()` (`Greatest(…, 0)` on removal). No reputation for reacting to your own post; `emoji: Literal["👍", "❤️"]`. Migration `0003` adds `Board.slug` nullable and unindexed → `RunPython` backfill with `-<pk>` on collision → `AlterField(unique=True)`. `boards/tests.py` joins `testpaths` |
+| `fix(api): release notification subscriptions when the socket closes` | `asyncio.wait` over the Redis forwarder and a `receive()` loop — whichever ends first cancels the other, then unsubscribe and close. Failures logged, not printed. Redis URL from `settings.REDIS_URL` (router and `notifications/models.py`) |
+| `fix(frontend): pagination, quotes, reactions, socket reconnect, media rewrite, a11y` | Board page effect depends on `page` (pagination was dead); board and topic pages ignore stale responses. Quote reply splits on a real newline. Failed reactions roll back. `WebSocketProvider` reconnects with 1 s → 30 s backoff and stops on logout; the unreachable desktop-notification branch is deleted. `/media/:path*` rewrite to the API (`API_INTERNAL_URL`, set to `http://fastapi:8001` in compose) — uploaded images and avatars load from the app origin. Navbar: `/settings` link removed, `aria-expanded`/`aria-haspopup`, Escape and outside click close every menu. `id`/`htmlFor` on the new-topic and profile forms, `aria-label` on the reply editor |
 
-**Data integrity**
-- `boards/models.py` — `Topic.last_updated` is never bumped when a reply is posted, so the default ordering (`['-is_pinned','-last_updated']`) is wrong. One `post_save` receiver on `Post` doing `Topic.objects.filter(pk=instance.topic_id).update(last_updated=timezone.now())` beats patching three call sites. (`.update()` is required — `auto_now` won't fire on a queryset update, which is exactly what you want here.)
-- Atomic counters: `api/routers/topics.py:84` → `.update(views_count=F('views_count') + 1)`; same for `reputation_score` at `posts.py:227-234`. Read-modify-write loses concurrent increments.
-- `posts.py:227-234` — reputation is granted for reacting to **your own** post, one row per distinct emoji, with an unvalidated emoji string. Guard with `if post.created_by_id != current_user.id:` and constrain the emoji to a `Literal`.
-- `boards/migrations/0003:30-34` adds `Board.slug` as `SlugField(blank=True, unique=True)` with no default — it fails on any database with more than one existing board. Fix it **now**, while no populated deployment exists: `AddField(null=True)` → `RunPython` that slugifies with a `-{pk}` collision suffix → `AlterField(unique=True)`.
+### Where it departed from the original plan
 
-**Frontend bugs**
-- `boards/[id]/page.tsx:73` — the effect omits `page` from its deps, so **board pagination is completely dead**. Add `page`, and `setLoading(true)` as the effect's first statement (otherwise `.finally` leaves it false forever).
-- `WebSocketProvider.tsx` — ~~dead `if (!tokens)` check, anonymous sockets, no rebuild on login~~ ✅ Phase 2. Still open: backoff reconnect guarded by a `cancelled` flag.
-- `topics/[id]/page.tsx:166` — `split('\\n')` produces a literal `\n` in quoted blockquotes. Use a real newline.
-- `PostCard.tsx` — the optimistic reaction count never rolls back on failure. Revert in the failure branch. (~~fires for anonymous users~~ ✅ gated in Phase 2.)
-- `Navbar.tsx:121-123` links to `/settings`, a route that does not exist. Delete the link now; build the page in Phase 5.
-- `WebSocketProvider.tsx:54` gates desktop notifications on `Notification.permission === 'granted'` and nothing ever calls `requestPermission()` — the whole branch is unreachable. Either request permission on a user gesture or delete the branch.
-- `notifications.py:64-107` — the bare `pubsub.listen()` loop never notices a client disconnect, (~~`channel_name` `NameError` on an invalid token~~ ✅ Phase 2). Use `asyncio.wait` over `pubsub.get_message(timeout=1)` + `websocket.receive_text()`, catch `WebSocketDisconnect` explicitly, and switch `print` → `logging`.
-- Accessibility: `id`/`htmlFor` pairs at `boards/[id]/page.tsx:142-162` and `profile/[username]/page.tsx:192-220`, `aria-label` on the message textarea, `aria-expanded`/`aria-haspopup` plus outside-click and Escape handling on the three `Navbar` dropdowns.
-- ~~`cms/wagtail_hooks.py:92,96` — `monthly_revenue` and `active_users` go through `mark_safe` unescaped. Editor-to-admin stored XSS.~~ ✅ File deleted with Wagtail in Phase 1.
+- **Uploads trust Pillow, not the client.** The plan mapped the (client-sent) Content-Type to an extension and added `verify()`; the format Pillow detects is the one fact the client can't spoof, so that alone picks the extension.
+- **`/media` also gets a sandboxing CSP and an octet-stream fallback**, so a non-image that already sits in `media/` (from before this phase) downloads instead of rendering.
+- **The edge body-size limit is not done** — there is no reverse proxy in the repo yet. Filed under Phase 7.
+- **Migration `0003`'s interim column is also `db_index=False`.** Otherwise a fresh database creates the `_like` index twice and `migrate` fails. Existing databases keep the unique constraint name `boards_board_slug_key`; fresh ones get `boards_board_slug_f5548cf1_uniq`. Django finds constraints by introspection, so later migrations work on both.
+- **Only a new post bumps its topic**, not an edit.
+- **The emoji whitelist is exactly what `PostCard` offers** (👍 ❤️); the database had no other reactions. Widen both together.
+- **The board page doesn't `setLoading(true)` on page change** (React's `set-state-in-effect` lint rule forbids it); it keeps showing the previous page until the next one arrives, and a stale-response guard stops out-of-order responses.
+- **Desktop notifications were deleted**, not wired to `requestPermission()`.
+- **Added:** profile `website` must be an `http(s)` URL. It renders as a link, so `javascript:` there was stored XSS (React 19 happens to block it at render; now the API refuses it).
+- **The socket disconnect test runs a real uvicorn server.** Starlette's `TestClient` cancels the handler when the test closes the socket, which hid the bug (checked: the old loop passes under `TestClient`).
+- **The manual pass is an automated headless-Chrome run** (below), not a checklist.
+- **Environment note:** a stale `frontend/.next` made Turbopack fail with `Can't resolve 'tailwindcss' in '…/hash_out/hash_out'` and hang every page. `rm -rf frontend/.next` fixes it.
 
-**Exit criteria:** a 12-item manual pass — upload an image and see it render; board pagination works; a reply bumps the topic to the top; `evil.html` with a spoofed content type gets a 400.
+### Exit criteria
+
+```
+pytest                                                              ✅ 55 passed
+mutation check — each fix removed in turn fails a test:
+  Pillow format check, nosniff, octet-stream fallback, self-reaction guard,
+  reputation floor, F() view counter (40 concurrent GETs), reply bump,
+  website validation, migration 0003 backfill, socket disconnect      ✅ 10/10 caught
+fresh-DB migrate vs existing DB: boards_board indexes                ✅ same (constraint name differs, see above)
+headless Chrome against next dev + uvicorn, seeded 25-topic board:
+  page 2 shows 5 different topics                                    ✅
+  labels find Subject/Tags/Message                                   ✅
+  menus: aria-expanded, Escape, outside click; no Settings link      ✅
+  quote keeps "> line one\n> line two"                               ✅
+  evil.html with image/png refused; real PNG renders from :3000/media, nosniff   ✅
+  reply moves the oldest topic to the top of page 1                  ✅
+  reaction: forced 500 rolls back, real one persists, author +1 reputation       ✅
+  avatar renders from /media/avatars/<uuid>.png                      ✅
+  API killed and restarted: socket reconnects and receives a notification        ✅
+  no uncaught page errors                                            ✅
+manage.py check · makemigrations --check · tsc --noEmit · docker compose config · pip check   ✅
+```
 
 ---
 
@@ -243,7 +264,7 @@ Both heavy services are either dead or actively harmful.
 ## Phase 5 — One rendering model, one API contract (2–3 days)
 
 - **Three route pages are 100% client components** (`boards/[id]`, `topics/[id]`, `profile/[username]`) that ship a spinner as their HTML, double-fetch data their server `layout.tsx` already fetched, and call `useSearchParams()` with no `Suspense` boundary — which bails the whole route out of prerendering. Convert them to async server components reading `params`/`searchParams` with `next: { revalidate: 60 }`, mirroring `app/page.tsx:37-57`, and extract client islands (`<NewTopicForm boardId>`, `<ReplyForm topicId>`, `<ProfileEditForm>`). This conversion is also what fixes the dead pagination and the splice-into-current-page bugs structurally rather than one at a time.
-- **SSR-in-Docker:** server components fetch from *inside* the frontend container, where `NEXT_PUBLIC_API_URL=http://localhost:8001` (compose `:131`) points at the container's own loopback. Add a server-side `API_INTERNAL_URL=http://fastapi:8001`.
+- **SSR-in-Docker:** server components fetch from *inside* the frontend container, where `NEXT_PUBLIC_API_URL=http://localhost:8001` (compose `:131`) points at the container's own loopback. Use the server-side `API_INTERNAL_URL` (added to compose in Phase 3 for the `/media` rewrite) for those fetches too.
 - **Fix the schemas before generating types**, or you generate the wrong ones: `api/schemas.py` has no `reactions`/`my_reactions` on posts and no `badges` on users, though the routers return all three. Then `npx openapi-typescript http://localhost:8001/openapi.json -o src/types/api.d.ts` into the **currently empty** `frontend/src/types/`, and replace the five hand-written interfaces that disagree with the backend.
 - Add `loading.tsx` and `error.tsx` per segment so a failed detail fetch does not escalate to the root `error.tsx` and blow away the whole page.
 - **Indexes** — there are none on any model, despite every hot query being filter+sort: `Topic ['board','-is_pinned','-last_updated']` and `['-views_count','-last_updated']`, `Post ['topic','created_at']`, `Notification ['recipient','is_read','-created_at']`.
@@ -268,7 +289,7 @@ Every item here is capability that exists on one side of the boundary and nowher
 | **Reactions** | `Reaction` model, POST endpoint, counts | The API never says which reactions are *yours*, forcing a `-2` count hack in `PostCard.tsx:28`. Return `my_reactions: list[str]` (needs a real optional-auth dependency — see below) |
 | **Notifications** | Model, list, mark-one-read, WS delivery | No unread-count, no mark-all (the client loops one request per notification at `WebSocketProvider.tsx:86-88`), no delete, no pagination, no `/notifications` page |
 | **Search UI** | API supports `type` + pagination | `search/page.tsx:36` sends neither. Add type tabs and `<Pagination>` |
-| **Settings page** | `Navbar` links to it | Route does not exist. Build `app/settings/page.tsx` on `/api/profiles/me` + the new change-password endpoint |
+| **Settings page** | `/api/profiles/me` and `POST /api/auth/change-password` | No page (the dead Navbar link was removed in Phase 3). Build `app/settings/page.tsx` and link it from the user menu again |
 | **Email verification** | Nothing | Accounts are live on first POST. Either add it (`is_active=False` + `verify:{email}` code + `POST /api/auth/verify-email`) or decide explicitly not to and document it |
 | **Profile display** | `reputation_score`, `badges` returned | Never rendered |
 | **AdSense** | `AdBanner` reads 4 env vars, documented in `frontend/env.sample` (Phase 0) | Unset values still render a visible "AdSense Slot: …" placeholder. Real account → set them; no account → delete `AdBanner` |
@@ -281,6 +302,7 @@ Note: ~~`get_optional_user`~~ ✅ deleted in Phase 2. Where optional auth is gen
 
 **Nothing in this repo can currently be deployed:** compose runs `runserver` and `uvicorn --reload`, the backend `Dockerfile` has no `CMD` and no `collectstatic`, the frontend `Dockerfile` ships `next dev`, both containers run as root, and there is no gunicorn, no whitenoise, and no CI at all.
 
+- **Reverse proxy:** cap request bodies (`client_max_body_size 6m`) — uploads are spooled in full before the 5 MB check (from Phase 3). Run uvicorn with `--forwarded-allow-ips` set to the proxy so rate limits see client IPs (from Phase 2).
 - `requirements.txt` — add `gunicorn>=22`, `whitenoise>=6.6`. Insert `WhiteNoiseMiddleware` immediately after `SecurityMiddleware` (`settings.py:71`) and set the manifest static storage.
 - `settings.py:19` — flip `DEBUG` to `default=False`, and add the hardening settings that **do not exist at all**, guarded by `if not DEBUG`: `SECURE_SSL_REDIRECT`, `SECURE_HSTS_SECONDS`, `SECURE_CONTENT_TYPE_NOSNIFF`, `X_FRAME_OPTIONS`, `SESSION_COOKIE_SECURE/HTTPONLY/SAMESITE`, `CSRF_COOKIE_SECURE`. Note `hash_out/urls.py:29`'s media branch goes dead with `DEBUG=False` — WhiteNoise or the proxy must serve it.
 - `Dockerfile` — delete `:9-11` (`build-essential` + `libpq-dev`; `psycopg2-binary` ships wheels — verify one clean build doesn't fall back to source), add `useradd --uid 10001 app` + `USER app`, add `RUN python manage.py collectstatic --noinput` **after** `COPY . .`, add a `CMD` with gunicorn.
@@ -330,7 +352,7 @@ Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 43
 Phase 0  ½ d   boot + hygiene        ✅ done 2026-09-17
 Phase 1  1-2 d one UI stack          ✅ done 2026-09-17
 Phase 2  2-3 d auth + is_active      ✅ done 2026-09-17
-Phase 3  1-2 d visible bug sweep     ← independent of 4-7, can interleave
+Phase 3  1-2 d visible bug sweep     ✅ done 2026-09-17
 Phase 4  1-2 d 6 services → 3
 Phase 5  2-3 d server components + contract + perf
 Phase 6  3-5 d complete the product
@@ -338,13 +360,13 @@ Phase 7  2-3 d production + CI
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Want a v1 deployed this week instead?** Phases 4 → 7 (skip 3, 5, 6) gets a working, honest forum up in ~2½ days with search, uploads, notifications and `/admin/` moderation. Then 3 before it is public, and 5–6 after.
+**Want a v1 deployed this week instead?** Phases 4 → 7 (skip 5, 6) gets a working, honest forum up in ~2½ days with search, uploads, notifications and `/admin/` moderation. Then 5–6 after.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.
 2. ~~Password validation + change-password endpoint + replacement tests before deleting the Django UI.~~ ✅ Satisfied in Phase 1.
 3. ~~`api/__init__.py` truncation before any Celery/tasks work — importing `api.tasks` otherwise drags in a second `django.setup()`.~~ ✅ Satisfied (`b97e10c`).
-4. Fix `migration 0003` before any deployment has more than one board.
+4. ~~Fix `migration 0003` before any deployment has more than one board.~~ ✅ Satisfied in Phase 3.
 5. Fix `api/schemas.py` before generating TypeScript types.
 6. Fix the N+1 queries before adding indexes — they cut far more latency, and the indexes are easier to pick once the query shapes are final.
 7. ~~Client-fetch consolidation before the httpOnly-cookie switch.~~ ✅ Satisfied in Phase 2.

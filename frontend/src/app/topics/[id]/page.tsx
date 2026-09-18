@@ -69,6 +69,7 @@ export default function TopicPage() {
     const [error, setError] = useState('');
 
     useEffect(() => {
+        let cancelled = false;
         Promise.all([
             api.get<Topic>(`/api/topics/${topicId}`),
             api.get<PostsResponse>(`/api/posts/topic/${topicId}?page=${page}`),
@@ -76,13 +77,15 @@ export default function TopicPage() {
             api.get<SimilarTopic[]>(`/api/topics/${topicId}/similar`).catch(() => []),
         ])
             .then(([topicData, postsData, similarData]) => {
+                if (cancelled) return;
                 setTopic(topicData);
                 setPosts(postsData.results);
                 setTotalPages(postsData.total_pages);
                 setSimilarTopics(similarData || []);
             })
-            .catch((err) => setError(err.message))
-            .finally(() => setLoading(false));
+            .catch((err) => { if (!cancelled) setError(err.message); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
     }, [topicId, page]);
 
     const handleReply = async (e: React.FormEvent) => {
@@ -163,7 +166,7 @@ export default function TopicPage() {
                                     updatedAt={post.updated_at}
                                     isFirst={index === 0}
                                     initialReactions={post.reactions}
-                                    onQuote={user ? (text) => setReplyMessage(prev => `${prev}\n\n> **${post.created_by.username}** wrote:\n> ${text.split('\\n').join('\\n> ')}\n\n`) : undefined}
+                                    onQuote={user ? (text) => setReplyMessage(prev => `${prev}\n\n> **${post.created_by.username}** wrote:\n> ${text.split('\n').join('\n> ')}\n\n`) : undefined}
                                 />
                                 {/* Inline ad every 5 posts */}
                                 {index > 0 && index % 5 === 0 && (
@@ -216,6 +219,7 @@ export default function TopicPage() {
                             <form onSubmit={handleReply}>
                                 <div className="form-group">
                                     <MarkdownEditor
+                                        ariaLabel="Reply"
                                         value={replyMessage}
                                         onChange={setReplyMessage}
                                         placeholder="Write your reply using markdown..."

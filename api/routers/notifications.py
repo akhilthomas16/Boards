@@ -4,16 +4,19 @@ Notifications router — handles WebSockets and notification CRUD.
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, HTTPException
 from starlette.concurrency import run_in_threadpool
 import asyncio
+import contextlib
 import redis.asyncio as aioredis
 from django.conf import settings
 from pydantic import BaseModel
 from typing import List
 from datetime import datetime
 import json
+import logging
 
 from ..auth import ACCESS_COOKIE, get_current_user, user_from_token
 from django.contrib.auth.models import User
 
+logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -80,32 +83,37 @@ async def websocket_notifications(websocket: WebSocket):
     # ponytail: auth is checked at connect only; a user deactivated mid-connection keeps receiving
     # their own notifications until the socket reconnects.
     await websocket.accept()
-    pubsub = None
-    r = None
     channel_name = f"user_{user.id}_notifications"
+    r = aioredis.from_url(settings.REDIS_URL)
+    pubsub = r.pubsub()
 
-    try:
-        # Connect to Redis asynchronously
-        r = aioredis.from_url(settings.CACHES['default']['LOCATION'])
-        pubsub = r.pubsub()
-        await pubsub.subscribe(channel_name)
-        
-        # Listen for messages
+    async def forward_notifications():
         async for message in pubsub.listen():
             if message["type"] == "message":
-                data = message["data"].decode("utf-8")
-                await websocket.send_text(data)
-                
-    except Exception as e:
-        print(f"WebSocket disconnected or error: {e}")
-        try:
-            await websocket.close(code=1008)
-        except:
+                await websocket.send_text(message["data"].decode("utf-8"))
+
+    async def wait_for_disconnect():
+        # The client never sends anything; receiving is how a closed tab is noticed.
+        while (await websocket.receive())["type"] != "websocket.disconnect":
             pass
+
+    try:
+        await pubsub.subscribe(channel_name)
+        done, pending = await asyncio.wait(
+            [asyncio.create_task(forward_notifications()), asyncio.create_task(wait_for_disconnect())],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        for task in done:
+            task.result()  # re-raise a Redis or send failure
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.exception("Notification socket for user %s failed", user.id)
+        with contextlib.suppress(Exception):  # the client may already be gone
+            await websocket.close(code=1011)
     finally:
-        # Cleanup Pub/Sub
-        if pubsub:
-            await pubsub.unsubscribe(channel_name)
-            await pubsub.close()
-        if r:
-            await r.aclose()
+        await pubsub.unsubscribe(channel_name)
+        await pubsub.aclose()
+        await r.aclose()

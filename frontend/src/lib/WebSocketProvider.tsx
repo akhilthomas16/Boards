@@ -35,28 +35,34 @@ export function WebSocketProvider({ children }: { children: ReactNode }) {
             .then(setNotifications)
             .catch(console.error);
 
-        // The access cookie authenticates the handshake.
-        const ws = new WebSocket(API_BASE.replace(/^http/, 'ws') + '/api/notifications/ws');
+        // The access cookie authenticates the handshake. Reconnect with backoff (1s, 2s, 4s … 30s)
+        // after an API restart or network drop; `cancelled` stops it on logout or unmount.
+        let ws: WebSocket;
+        let cancelled = false;
+        let retries = 0;
+        let retryTimer: ReturnType<typeof setTimeout>;
 
-        ws.onmessage = (event) => {
-            try {
-                const newNotif = JSON.parse(event.data);
-                setNotifications(prev => [newNotif, ...prev]);
-
-                // Optionally play a soft sound or show browser notification
-                if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
-                    new Notification('Hash Out', { body: `${newNotif.actor} ${newNotif.message}` });
+        const connect = () => {
+            ws = new WebSocket(API_BASE.replace(/^http/, 'ws') + '/api/notifications/ws');
+            ws.onopen = () => { retries = 0; };
+            ws.onmessage = (event) => {
+                try {
+                    const newNotif = JSON.parse(event.data);
+                    setNotifications(prev => [newNotif, ...prev]);
+                } catch (err) {
+                    console.error('Failed to parse WebSocket message', err);
                 }
-            } catch (err) {
-                console.error('Failed to parse WebSocket message', err);
-            }
+            };
+            ws.onclose = () => {
+                if (cancelled) return;
+                retryTimer = setTimeout(connect, Math.min(30000, 1000 * 2 ** retries++));
+            };
         };
-
-        ws.onclose = () => {
-            console.log('WebSocket disconnected');
-        };
+        connect();
 
         return () => {
+            cancelled = true;
+            clearTimeout(retryTimer);
             ws.close();
             setNotifications([]);
         };
