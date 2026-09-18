@@ -1,5 +1,5 @@
 /**
- * Search page — Elasticsearch-powered search with type filtering.
+ * Search page — search across boards, topics and posts.
  */
 'use client';
 

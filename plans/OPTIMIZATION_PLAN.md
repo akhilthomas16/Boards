@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phases 0–2 ✅ merged (PR #5, #6, #7). Phase 3 ✅ done on `feat/phase-3-bug-sweep` — uploads are validated by content, pagination/replies/reactions behave, the notification socket survives restarts and notices disconnects. **Next: Phase 4.**
+**Status:** Phases 0–3 ✅ merged (PR #5–#8). Phase 4 ✅ done on `feat/phase-4-three-services` — Elasticsearch and Celery are gone, `docker compose up` starts four services, search is one correct ORM path. **Next: Phase 5**, or straight to Phase 7 for a deployable v1.
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-17 after Phase 3. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 4. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -238,26 +238,38 @@ manage.py check · makemigrations --check · tsc --noEmit · docker compose conf
 
 ---
 
-## Phase 4 — Six services → three (1–2 days)
+## Phase 4 — Six services → three ✅ Done
 
-Both heavy services are either dead or actively harmful.
+**Completed 2026-09-18** on `feat/phase-4-three-services`. 457 lines deleted, 161 added, across 20 files; 3 files removed; 2 services, 3 Python packages and 1 volume gone.
 
-**Elasticsearch — delete it.** `boards/documents.py:9,23,40` register three documents with the default `RealTimeSignalProcessor`, which made **every Board/Topic/Post write depend on Elasticsearch being up**. Phase 0 turned autosync off, so the index is now stale by design and search already leans on the ORM fallback (`3e05a4d`) — Elasticsearch carries no weight at all. The search path also has real bugs: `search.py:80` links post hits to `/topics/<post_id>` (the *post's* pk — every post result navigates somewhere unrelated), and `_search_orm`'s `total` is computed from different sets than the ones it slices, with a `|` union that yields duplicates.
-- `git rm boards/documents.py`; delete `_search_elasticsearch` and the try/except at `search.py:23-29`; remove `django_elasticsearch_dsl` from `INSTALLED_APPS`, the `ELASTICSEARCH_DSL` block and `ELASTICSEARCH_DSL_AUTOSYNC` (`settings.py:139-149`), and both keys from `env.sample`; drop `elasticsearch`/`django-elasticsearch-dsl` from requirements; remove the service, the `es_data` volume and the three `ELASTICSEARCH_URL` lines from compose; delete `api/tasks.py:7-30` and `:101-107`.
-- Rewrite `_search_orm` as the only path: one combined result list, `total` from the same filtered sets that get sliced, `type` as a `Literal['all','board','topic','post']`, correct per-type totals.
-- *If you want real search later:* Postgres full-text (`SearchVector` + a GIN index) costs no new service.
+| Commit | What landed |
+|---|---|
+| `refactor: delete elasticsearch and celery, search runs on the ORM` | **Search:** `boards/documents.py` deleted and `search.py` rewritten — `_search_elasticsearch` and the fallback dance gone; one result list paginated **across** types (each type used to skip the same offset, so page 2 repeated rows); `total` and a new per-type `counts` map computed from the same filtered sets; `type` is a `Literal`; `Q(name|description)` instead of a `|` queryset union; post hits link to `/topics/<topic_id>`, not the post id. `api/tests/test_search.py` |
+| *(same commit)* | **ES:** the `ELASTICSEARCH_*` settings, the `django_elasticsearch_dsl` app, both requirements, the compose service, its `es_data` volume, the three `ELASTICSEARCH_URL` lines and the `env.sample` keys. **Celery:** `hash_out/celery.py`, `api/tasks.py` (5 of its 6 tasks had no caller), the `CELERY_*` settings, `celery[redis]`, the worker service, the `hash_out/__init__.py` import. `send_otp_email()` is now a plain function in `api/auth.py`. `EMAIL_HOST`/`PORT`/`USER`/`PASSWORD`/`USE_TLS` and `DEFAULT_FROM_EMAIL` settings added (the OTP path always assumed them) and documented in `env.sample` |
+| `refactor(api): delete the dead cache decorator` | `api/deps.py` keeps only `paginate()`; the never-applied `cached` decorator, `cache_key`, `invalidate_cache` and all ten call sites are gone. `CACHES` falls back to `LocMemCache` when `REDIS_URL` is empty (the rate limiter already falls back to in-memory), so the suite runs without Redis |
+| `docs: describe the three services in the readme` | README: no Elasticsearch/Celery rows or steps, Redis described as required (sessions, reset codes, rate limits, pub/sub), `docker compose up` documented, structure tree updated |
 
-**Celery — delete it.** Nothing enqueues a task any more: Phase 2 replaced the one `.delay()` call (a silent no-op — the task was never registered) with a direct call.
-- ~~`api/auth.py:208` → call `send_otp_email` directly~~ ✅ Phase 2 (from `BackgroundTasks`). Move `send_otp_email` out of `api/tasks.py` into a plain function when the rest of that file goes.
-- Delete `hash_out/celery.py`, `hash_out/__init__.py:6-8`, the `CELERY_*` block (`settings.py:147-156`), `celery[redis]`, and the worker service.
-- Add the email settings the OTP path has always assumed: `DEFAULT_FROM_EMAIL` (currently unset while `tasks.py` passes `from_email=None`), `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, `EMAIL_USE_TLS`. Document them in `env.sample` — Phase 0 deliberately left them out because nothing read them yet.
-- *Bring Celery back when* a task is genuinely slow and nobody is waiting on it (digest emails, bulk reindex). Not for one OTP.
+### Where it departed from the original plan
 
-**Redis stays, and the README should say so.** It is not an optional cache: it holds sessions (`SESSION_ENGINE = cache`), the OTP store, the rate-limit counters (once `storage_uri` is set) and the notification pub/sub. Add a `LocMemCache` branch for when `REDIS_URL` is absent so tests can run without it.
+- **`api/tasks.py` was deleted outright**, not trimmed: with Celery gone its last live function is `send_otp_email`, which now sits in `api/auth.py` beside its only caller.
+- **The Django service stays in compose but behind a `profiles: ["admin"]` flag**, so a plain `docker compose up` starts exactly postgres, redis, fastapi and frontend; `docker compose --profile admin up django` when you need `/admin/`.
+- **Search gained a `counts` field** (per-type totals) rather than only fixing `total` — Phase 6's type tabs need it, and it comes from the same queries.
+- **Redis stays required in practice.** The `LocMemCache` fallback is per-process: fine for tests or a bare checkout, useless for sessions across workers. The notification WebSocket still needs a real Redis.
+- **Postgres full-text search was not added.** `icontains` is what the ORM path already did; revisit when search quality matters (a `SearchVector` + GIN index costs no new service).
 
-**Delete the dead cache layer.** `api/deps.py:19-32` defines a `cached` decorator that is **never applied to anything** (and is `async`, incompatible with every sync handler in the codebase), so all **ten** `invalidate_cache()` calls — `topics.py:113,142`, `boards.py:66,85,102`, `posts.py:97,132,164,183,236` — clear namespaces nothing ever writes. Delete the decorator, all ten call sites, and the imports they leave behind (`json`, `wraps`, `Optional`, `settings` in `deps.py`; keep `paginate`).
+### Exit criteria
 
-**Exit criteria:** `docker compose up` starts exactly postgres, redis, fastapi, frontend (django on demand); `grep -rin 'elasticsearch\|celery' --include='*.py' --include='*.txt' --include='*.yml' .` is empty; search returns correct totals and post hits link to their topic.
+```
+docker compose config --services                      ✅ postgres, redis, fastapi, frontend (django behind --profile admin)
+docker compose up -d postgres redis                   ✅ both healthy, then torn down with down -v
+docker compose up --build (full stack)                ⏸ not run — disk is at 97%; Phase 7 rewrites both Dockerfiles
+git grep -i 'elasticsearch|celery' outside plans/     ✅ empty
+pytest                                                ✅ 59 passed
+mutation check: post→topic link, total from counts, cross-type paging   ✅ 3/3 caught
+REDIS_URL empty → LocMemCache + in-memory rate limits, api.main imports  ✅
+venv after uninstalling both packages: pip check, requirements-dev satisfied   ✅
+manage.py check · makemigrations --check · tsc --noEmit · docker compose config   ✅
+```
 
 ---
 
@@ -327,14 +339,14 @@ Everything below is verified unreferenced or superseded. Roughly **2,000 LOC, 43
 
 **Delete outright**
 - ✅ *Phase 1:* ~~`templates/` · `static/` · `boards/views.py` · `boards/urls.py` · `boards/forms.py` · `boards/templatetags/` · `accounts/views.py` · `accounts/forms.py` · `hash_out/asgi.py` · `notifications/views.py` + `notifications/tests.py` + `accounts/admin.py`~~ (`notifications/admin.py` now registers `Notification`)
-- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · `api/deps.py:19-32` + 10 `invalidate_cache()` calls · ~~`api/auth.py:11,22` (unused `CryptContext`)~~ ✅ + ~~`:105-112` (`get_optional_user`)~~ ✅ Phase 2 · ~~`api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments)~~ ✅ · `api/tasks.py:7-30,101-107` (ES tasks)
-- `boards/documents.py` + the ES config · `hash_out/celery.py` + the Celery config · ~~`cms/models.py:15-70` (template-less Page models)~~ ✅ with all of Wagtail
+- ~~`api/__init__.py:5-47` (stale duplicate app)~~ ✅ `b97e10c` · ~~`api/deps.py:19-32` + 10 `invalidate_cache()` calls~~ ✅ Phase 4 · ~~`api/auth.py:11,22` (unused `CryptContext`)~~ ✅ + ~~`:105-112` (`get_optional_user`)~~ ✅ Phase 2 · ~~`api/routers/topics.py:117-153` + `api/routers/posts.py:101-142` (HTMX fragments)~~ ✅ · ~~`api/tasks.py:7-30,101-107` (ES tasks)~~ ✅ whole file deleted in Phase 4
+- ✅ *Phase 4:* ~~`boards/documents.py` + the ES config · `hash_out/celery.py` + the Celery config · `api/tasks.py`~~ · ~~`cms/models.py:15-70` (template-less Page models)~~ ✅ with all of Wagtail
 - ~~`accounts/tests/` + `boards/tests/` — 497 LOC testing only deleted code~~ ✅ replaced by `api/tests/test_auth.py`
 - ~~`frontend/public/{next,vercel,file,globe,window}.svg`~~ ✅ · dead imports: `api/main.py:18` (`os` twice), ~~`topics.py:4`~~ ✅, `topics.py:12`, `posts.py:12`, `notifications.py:5,11`, `search.py:4`, ~~`content.py:10`~~ ✅, `deps.py:6,10`, ~~`cms/models.py:10`~~ ✅, ~~`docker-compose.yml:2` (obsolete `version:`)~~ ✅
 
 **Untrack (keep on disk)** — ~~`.env`, `db.sqlite3`, 67 `__pycache__` entries~~ ✅ Phase 0 · ~~`frontend/public/sw.js`, `frontend/public/workbox-*.js`~~ ✅ Phase 1
 
-**Drop from requirements.txt** — `elasticsearch`, `django-elasticsearch-dsl`, `celery[redis]` · ✅ Phase 1: ~~`django-widget-tweaks`, `django-cors-headers`, `passlib[bcrypt]`, `httpx` (→ `requirements-dev.txt`), `wagtail`~~
+**Drop from requirements.txt** — ✅ *Phase 4:* ~~`elasticsearch`, `django-elasticsearch-dsl`, `celery[redis]`~~ · ✅ Phase 1: ~~`django-widget-tweaks`, `django-cors-headers`, `passlib[bcrypt]`, `httpx` (→ `requirements-dev.txt`), `wagtail`~~
 
 **Drop from package.json** — ~~`htmx.org`~~ ✅, `@ducanh2912/next-pwa` (can never regenerate under Turbopack), `tailwindcss` + `@tailwindcss/postcss` (imported, zero classes used)
 
@@ -353,14 +365,14 @@ Phase 0  ½ d   boot + hygiene        ✅ done 2026-09-17
 Phase 1  1-2 d one UI stack          ✅ done 2026-09-17
 Phase 2  2-3 d auth + is_active      ✅ done 2026-09-17
 Phase 3  1-2 d visible bug sweep     ✅ done 2026-09-17
-Phase 4  1-2 d 6 services → 3
+Phase 4  1-2 d 6 services → 3        ✅ done 2026-09-18
 Phase 5  2-3 d server components + contract + perf
 Phase 6  3-5 d complete the product
 Phase 7  2-3 d production + CI
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Want a v1 deployed this week instead?** Phases 4 → 7 (skip 5, 6) gets a working, honest forum up in ~2½ days with search, uploads, notifications and `/admin/` moderation. Then 5–6 after.
+**Want a v1 deployed now?** Phase 7 alone (skip 5 and 6) gets a working, honest forum deployed in ~2–3 days with search, uploads, notifications and `/admin/` moderation. Then 5–6 after.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.

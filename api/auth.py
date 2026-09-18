@@ -17,6 +17,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.conf import settings
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
+from django.core.mail import send_mail
 
 from .limiter import limiter
 
@@ -255,10 +256,19 @@ def _otp_keys(email: str) -> tuple[str, str]:
     return f"otp:{email}", f"otp:attempts:{email}"
 
 
+def send_otp_email(email: str, otp: str) -> None:
+    send_mail(
+        subject="Your password reset code",
+        message=f"Your password reset code is: {otp}\n\nThis code expires in {OTP_TTL_SECONDS // 60} minutes.",
+        from_email=None,  # DEFAULT_FROM_EMAIL
+        recipient_list=[email],
+        fail_silently=False,
+    )
+
+
 def _send_otp(email: str, otp: str) -> None:
-    from .tasks import send_otp_email
     try:
-        send_otp_email(email, otp)  # direct call: the Celery task was never registered with a worker
+        send_otp_email(email, otp)
     except Exception:
         logger.exception("Failed to send password reset code")
 

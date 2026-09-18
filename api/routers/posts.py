@@ -13,7 +13,7 @@ from boards.models import Topic, Post
 from ..auth import get_current_user
 from ..schemas import PostCreate, PostUpdate, PostResponse, UserBrief
 from pydantic import BaseModel
-from ..deps import paginate, invalidate_cache
+from ..deps import paginate
 from .profiles import get_user_badges
 
 router = APIRouter()
@@ -96,7 +96,6 @@ def create_post(
             link=f"/topics/{topic.id}#post-{post.id}"
         )
         
-    invalidate_cache("posts")
     return _post_to_response(post)
 
 
@@ -119,7 +118,6 @@ def update_post(
     post.updated_by = current_user
     post.updated_at = datetime.now(timezone.utc)
     post.save()
-    invalidate_cache("posts")
     return _post_to_response(post)
 
 
@@ -138,7 +136,6 @@ def delete_post(
         raise HTTPException(status_code=403, detail="Can only delete your own posts")
 
     post.delete()
-    invalidate_cache("posts")
 
 
 class ReactionRequest(BaseModel):
@@ -186,5 +183,4 @@ def toggle_reaction(
         change = F('reputation_score') + 1 if action == "added" else Greatest(F('reputation_score') - 1, 0)
         UserProfile.objects.filter(user_id=post.created_by_id).update(reputation_score=change)
 
-    invalidate_cache(f"topic_{post.topic.id}")
     return {"status": "success", "action": action, "emoji": data.emoji}
