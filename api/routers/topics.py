@@ -11,7 +11,7 @@ from django.contrib.auth.models import User
 from boards.models import Board, Topic, Post
 from ..auth import get_current_user
 from ..schemas import TopicCreate, TopicResponse, UserBrief
-from ..deps import paginate, invalidate_cache
+from ..deps import paginate
 
 router = APIRouter()
 
@@ -137,5 +137,4 @@ def create_topic(
         topic=topic,
         created_by=current_user,
     )
-    invalidate_cache("topics")
     return _topic_to_response(topic)

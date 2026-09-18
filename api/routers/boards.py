@@ -7,7 +7,7 @@ from django.contrib.auth.models import User
 from boards.models import Board
 from ..auth import get_current_user
 from ..schemas import BoardCreate, BoardUpdate, BoardResponse
-from ..deps import paginate, invalidate_cache
+from ..deps import paginate
 
 router = APIRouter()
 
@@ -63,7 +63,6 @@ def create_board(data: BoardCreate, current_user: User = Depends(get_current_use
     if Board.objects.filter(name=data.name).exists():
         raise HTTPException(status_code=400, detail="Board with this name already exists")
     board = Board.objects.create(name=data.name, description=data.description)
-    invalidate_cache("boards")
     return _board_to_response(board)
 
 
@@ -82,7 +81,6 @@ def update_board(board_id: int, data: BoardUpdate, current_user: User = Depends(
     if data.description is not None:
         board.description = data.description
     board.save()
-    invalidate_cache("boards")
     return _board_to_response(board)
 
 
@@ -99,4 +97,3 @@ def delete_board(board_id: int, current_user: User = Depends(get_current_user)):
     if board.topics.exists():
         raise HTTPException(status_code=400, detail="Cannot delete board with existing topics")
     board.delete()
-    invalidate_cache("boards")
