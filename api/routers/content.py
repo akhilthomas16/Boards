@@ -1,14 +1,13 @@
 """
 LLM content generation endpoints — topic summaries, reply suggestions.
 """
-from fastapi import APIRouter, Depends, HTTPException, Request
-from django.contrib.auth.models import User
 from django.conf import settings
+from django.contrib.auth.models import User
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from ..auth import get_current_user
-from ..schemas import ContentGenerateRequest, ContentGenerateResponse
-
 from ..limiter import limiter
+from ..schemas import ContentGenerateRequest, ContentGenerateResponse
 
 router = APIRouter()
 
@@ -70,7 +69,7 @@ def suggest_reply(
     current_user: User = Depends(get_current_user),
 ):
     """Generate a suggested reply based on topic context."""
-    from boards.models import Topic, Post
+    from boards.models import Post, Topic
 
     try:
         topic = Topic.objects.get(pk=topic_id)
@@ -96,7 +95,7 @@ def summarize_topic(
     current_user: User = Depends(get_current_user),
 ):
     """Generate a summary of a topic's discussion."""
-    from boards.models import Topic, Post
+    from boards.models import Post, Topic
 
     try:
         topic = Topic.objects.get(pk=topic_id)

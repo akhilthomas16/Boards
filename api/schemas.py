@@ -2,9 +2,8 @@
 Pydantic schemas for API request/response models.
 """
 from datetime import datetime
-from typing import Optional, List
-from pydantic import BaseModel
 
+from pydantic import BaseModel
 
 # =============================================================================
 # USER
@@ -13,7 +12,7 @@ from pydantic import BaseModel
 class UserBrief(BaseModel):
     id: int
     username: str
-    badges: List[str] = []
+    badges: list[str] = []
 
     class Config:
         from_attributes = True
@@ -28,8 +27,8 @@ class BoardCreate(BaseModel):
     description: str
 
 class BoardUpdate(BaseModel):
-    name: Optional[str] = None
-    description: Optional[str] = None
+    name: str | None = None
+    description: str | None = None
 
 class BoardResponse(BaseModel):
     id: int
@@ -38,7 +37,7 @@ class BoardResponse(BaseModel):
     description: str
     posts_count: int = 0
     topics_count: int = 0
-    last_post_at: Optional[datetime] = None
+    last_post_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -51,12 +50,12 @@ class BoardResponse(BaseModel):
 class TopicCreate(BaseModel):
     subject: str
     message: str  # first post content
-    tags: Optional[str] = None
+    tags: str | None = None
 
 class TopicModerate(BaseModel):
     """Staff-only flags. Anything omitted is left alone."""
-    is_pinned: Optional[bool] = None
-    is_locked: Optional[bool] = None
+    is_pinned: bool | None = None
+    is_locked: bool | None = None
 
 class TopicResponse(BaseModel):
     id: int
@@ -91,11 +90,11 @@ class PostResponse(BaseModel):
     message: str
     topic_id: int
     created_by: UserBrief
-    updated_by: Optional[UserBrief] = None
+    updated_by: UserBrief | None = None
     reactions: dict[str, int] = {}  # emoji → count
-    my_reactions: List[str] = []  # emoji the caller has reacted with
+    my_reactions: list[str] = []  # emoji the caller has reacted with
     created_at: datetime
-    updated_at: Optional[datetime] = None
+    updated_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -113,13 +112,13 @@ class Page(BaseModel):
     total_pages: int
 
 class BoardListResponse(Page):
-    results: List[BoardResponse]
+    results: list[BoardResponse]
 
 class TopicListResponse(Page):
-    results: List[TopicResponse]
+    results: list[TopicResponse]
 
 class PostListResponse(Page):
-    results: List[PostResponse]
+    results: list[PostResponse]
 
 
 # =============================================================================
@@ -138,7 +137,7 @@ class SearchResponse(BaseModel):
     query: str
     total: int
     counts: dict[str, int]  # per type, for the search UI's tabs
-    results: List[SearchResult]
+    results: list[SearchResult]
 
 
 # =============================================================================
@@ -147,12 +146,12 @@ class SearchResponse(BaseModel):
 
 class ContentGenerateRequest(BaseModel):
     prompt: str
-    context: Optional[str] = None  # e.g., topic subject, existing posts
+    context: str | None = None  # e.g., topic subject, existing posts
 
 class ContentGenerateResponse(BaseModel):
     generated_text: str
     model: str
-    tokens_used: Optional[int] = None
+    tokens_used: int | None = None
 
 
 # =============================================================================

@@ -1,0 +1,17 @@
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+# Defaults (pycodestyle errors + pyflakes) plus import hygiene and obvious bug patterns.
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+ignore = [
+    "B008",  # FastAPI's Depends()/Query() in defaults is the framework's own idiom
+    "B904",  # handlers translate exceptions into HTTPException; the original traceback adds nothing
+]
+
+[tool.ruff.lint.per-file-ignores]
+# django.setup() has to run before the model imports in these two.
+"api/main.py" = ["E402"]
+"api/tests/test_tags.py" = ["E402"]

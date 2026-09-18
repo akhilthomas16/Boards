@@ -1,6 +1,7 @@
-import json
 from django.core.cache import cache
+
 from .models import SiteSetting
+
 
 def get_site_setting(key: str, default=None) -> str:
     """

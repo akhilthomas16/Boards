@@ -1,19 +1,20 @@
 """
 Board API endpoints — list, retrieve, create, update, delete boards.
 """
-from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
-from django.db.models import Count, Max
+from django.db.models import Count, Max, QuerySet
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from boards.models import Board
+
 from ..auth import get_current_user
-from ..schemas import BoardCreate, BoardUpdate, BoardListResponse, BoardResponse
 from ..deps import paginate
+from ..schemas import BoardCreate, BoardListResponse, BoardResponse, BoardUpdate
 
 router = APIRouter()
 
 
-def _boards() -> "QuerySet[Board]":
+def _boards() -> QuerySet[Board]:
     """Counts and last-post time as annotations: one query for any number of boards.
 
     order_by is explicit because aggregation drops Meta.ordering.
