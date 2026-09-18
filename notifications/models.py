@@ -6,6 +6,9 @@ from django.conf import settings
 import redis
 import json
 
+# One pool for the process; publishing opened a fresh connection per notification.
+_redis = redis.from_url(settings.REDIS_URL) if settings.REDIS_URL else None
+
 class Notification(models.Model):
     recipient = models.ForeignKey(User, on_delete=models.CASCADE, related_name='notifications')
     actor = models.ForeignKey(User, on_delete=models.CASCADE, related_name='+')
@@ -16,6 +19,7 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+        indexes = [models.Index(fields=['recipient', 'is_read', '-created_at'])]
 
     def __str__(self):
         return f"To {self.recipient.username}: {self.message}"
@@ -25,8 +29,9 @@ class Notification(models.Model):
 def notify_websocket(sender, instance, created, **kwargs):
     """Publish the new notification to a Redis Pub/Sub channel for FastAPI to consume."""
     if created:
+        if _redis is None:
+            return
         try:
-            r = redis.from_url(settings.REDIS_URL)
             payload = {
                 "id": instance.id,
                 "message": instance.message,
@@ -36,7 +41,7 @@ def notify_websocket(sender, instance, created, **kwargs):
                 "is_read": instance.is_read
             }
             channel_name = f"user_{instance.recipient.id}_notifications"
-            r.publish(channel_name, json.dumps(payload))
+            _redis.publish(channel_name, json.dumps(payload))
         except Exception as e:
             # Silently fail if Redis is unreachable to not break DB transaction
             print(f"Failed to publish notification to Redis: {e}")

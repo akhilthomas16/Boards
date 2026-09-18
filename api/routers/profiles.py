@@ -47,14 +47,18 @@ class ProfileUpdate(BaseModel):
     website: Optional[str] = None
 
 
-def get_user_badges(profile) -> list[str]:
+def get_user_badges(profile, post_count: int | None = None) -> list[str]:
+    """`post_count` skips the per-profile COUNT when the caller already annotated it."""
+    if post_count is None:
+        post_count = profile.post_count
+
     badges = []
     if profile.reputation_score >= 100:
         badges.append("Legend")
     elif profile.reputation_score >= 10:
         badges.append("Contributor")
-        
-    if profile.post_count >= 50:
+
+    if post_count >= 50:
         badges.append("Top Poster")
         
     if not badges:

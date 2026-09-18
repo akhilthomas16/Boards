@@ -13,6 +13,7 @@ from pydantic import BaseModel
 class UserBrief(BaseModel):
     id: int
     username: str
+    badges: List[str] = []
 
     class Config:
         from_attributes = True
@@ -86,11 +87,33 @@ class PostResponse(BaseModel):
     topic_id: int
     created_by: UserBrief
     updated_by: Optional[UserBrief] = None
+    reactions: dict[str, int] = {}  # emoji → count
     created_at: datetime
     updated_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+# =============================================================================
+# PAGINATION
+# =============================================================================
+
+class Page(BaseModel):
+    """What deps.paginate() returns around every list endpoint."""
+    count: int
+    page: int
+    page_size: int
+    total_pages: int
+
+class BoardListResponse(Page):
+    results: List[BoardResponse]
+
+class TopicListResponse(Page):
+    results: List[TopicResponse]
+
+class PostListResponse(Page):
+    results: List[PostResponse]
 
 
 # =============================================================================

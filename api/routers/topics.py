@@ -4,13 +4,13 @@ Topic API endpoints — list, create, retrieve topics within boards.
 from functools import reduce
 from operator import or_
 
-from django.db.models import F, Q
+from django.db.models import Count, F, Q
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
 
 from boards.models import Board, Topic, Post
 from ..auth import get_current_user
-from ..schemas import TopicCreate, TopicResponse, UserBrief
+from ..schemas import TopicCreate, TopicListResponse, TopicResponse, UserBrief
 from ..deps import paginate
 
 router = APIRouter()
@@ -26,8 +26,21 @@ def _normalize_tags(raw: str | None) -> str:
     return ",".join(seen)[:255]
 
 
+def _topics() -> "QuerySet[Topic]":
+    """Reply count as an annotation: one query for any number of topics.
+
+    order_by is explicit because aggregation drops Meta.ordering.
+    """
+    return (Topic.objects.select_related("board", "starter")
+            .annotate(posts_total=Count("posts"))
+            .order_by(*Topic._meta.ordering))
+
+
 def _topic_to_response(topic: Topic) -> dict:
-    """Convert a Topic model to response dict."""
+    """Convert a Topic (annotated by _topics, or plain) to a response dict."""
+    posts_total = getattr(topic, "posts_total", None)
+    if posts_total is None:
+        posts_total = topic.posts.count()
     return {
         "id": topic.id,
         "subject": topic.subject,
@@ -36,7 +49,7 @@ def _topic_to_response(topic: Topic) -> dict:
         "board_name": topic.board.name,
         "starter": {"id": topic.starter.id, "username": topic.starter.username},
         "views_count": topic.views_count,
-        "replies_count": max(0, topic.posts.count() - 1),
+        "replies_count": max(0, posts_total - 1),  # the first post is the topic itself
         "is_pinned": topic.is_pinned,
         "is_locked": topic.is_locked,
         "tags": topic.tags,
@@ -44,15 +57,15 @@ def _topic_to_response(topic: Topic) -> dict:
     }
 
 
-@router.get("/trending")
+@router.get("/trending", response_model=list[TopicResponse])
 def trending_topics():
     """Get trending topics based on views and updates."""
     # Simple algorithm: order by views_count locally. For real prod: (views_count + (replies * 5)) over last 7 days.
-    qs = Topic.objects.all().select_related('starter', 'board').order_by('-views_count', '-last_updated')[:5]
+    qs = _topics().order_by('-views_count', '-last_updated')[:5]
     return [_topic_to_response(t) for t in qs]
 
 
-@router.get("/{topic_id}/similar")
+@router.get("/{topic_id}/similar", response_model=list[TopicResponse])
 def similar_topics(topic_id: int):
     """Find similar topics via simple tags overlap or same board."""
     try:
@@ -60,7 +73,7 @@ def similar_topics(topic_id: int):
     except Topic.DoesNotExist:
         raise HTTPException(status_code=404, detail="Topic not found")
         
-    siblings = Topic.objects.exclude(id=topic_id).select_related('starter', 'board')
+    siblings = _topics().exclude(id=topic_id)
 
     tags = [t for t in topic.tags.split(",") if t]
     if tags:
@@ -81,7 +94,7 @@ def similar_topics(topic_id: int):
 
 
 
-@router.get("/board/{board_id}")
+@router.get("/board/{board_id}", response_model=TopicListResponse)
 def list_topics(
     board_id: int,
     page: int = Query(1, ge=1),
@@ -93,7 +106,7 @@ def list_topics(
     except Board.DoesNotExist:
         raise HTTPException(status_code=404, detail="Board not found")
 
-    qs = Topic.objects.filter(board=board).select_related('starter', 'board')
+    qs = _topics().filter(board=board)
     paged = paginate(qs, page, page_size)
     paged["results"] = [_topic_to_response(t) for t in paged["results"]]
     return paged
@@ -103,7 +116,7 @@ def list_topics(
 def get_topic(topic_id: int):
     """Get a single topic and increment view count."""
     try:
-        topic = Topic.objects.select_related('starter', 'board').get(pk=topic_id)
+        topic = _topics().get(pk=topic_id)
     except Topic.DoesNotExist:
         raise HTTPException(status_code=404, detail="Topic not found")
 

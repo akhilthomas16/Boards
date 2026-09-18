@@ -23,12 +23,6 @@ class Board(models.Model):
             self.slug = slugify(self.name)
         super().save(*args, **kwargs)
 
-    def get_posts_count(self):
-        return Post.objects.filter(topic__board=self).count()
-
-    def get_last_post(self):
-        return Post.objects.filter(topic__board=self).order_by('-created_at').first()
-
 
 class Topic(models.Model):
     subject = models.CharField(max_length=255)
@@ -43,6 +37,10 @@ class Topic(models.Model):
 
     class Meta:
         ordering = ['-is_pinned', '-last_updated']
+        indexes = [
+            models.Index(fields=['board', '-is_pinned', '-last_updated']),  # a board's topic list
+            models.Index(fields=['-views_count', '-last_updated']),  # trending
+        ]
 
     def __str__(self):
         return self.subject
@@ -51,12 +49,6 @@ class Topic(models.Model):
         if not self.slug:
             self.slug = slugify(self.subject)[:280]
         super().save(*args, **kwargs)
-
-    def get_replies_count(self):
-        return self.posts.count() - 1  # exclude the first post
-
-    def get_last_post(self):
-        return self.posts.order_by('-created_at').first()
 
 
 class Post(models.Model):
@@ -69,6 +61,7 @@ class Post(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        indexes = [models.Index(fields=['topic', 'created_at'])]  # a topic's posts, in order
 
     def __str__(self):
         return f'Post by {self.created_by.username} on {self.topic.subject}'
