@@ -14,6 +14,8 @@ class UserProfile(models.Model):
     location = models.CharField(max_length=100, blank=True, default='')
     website = models.URLField(max_length=200, blank=True, default='')
     reputation_score = models.IntegerField(default=0)
+    # Separate from User.is_active, which means banned: a ban and an unconfirmed email are not the same.
+    email_verified = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
