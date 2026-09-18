@@ -146,16 +146,6 @@ OPENAI_BASE_URL = config('OPENAI_BASE_URL', default='https://api.openai.com/v1')
 
 
 # =============================================================================
-# GOOGLE ADS
-# =============================================================================
-
-GOOGLE_ADSENSE_CLIENT_ID = config('GOOGLE_ADSENSE_CLIENT_ID', default='')
-GOOGLE_ADSENSE_SLOT_BANNER = config('GOOGLE_ADSENSE_SLOT_BANNER', default='')
-GOOGLE_ADSENSE_SLOT_SIDEBAR = config('GOOGLE_ADSENSE_SLOT_SIDEBAR', default='')
-GOOGLE_ADSENSE_SLOT_INFEED = config('GOOGLE_ADSENSE_SLOT_INFEED', default='')
-
-
-# =============================================================================
 # AUTH
 # =============================================================================
 
