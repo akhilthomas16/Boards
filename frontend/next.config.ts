@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 const apiUrl = process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 
 const nextConfig: NextConfig = {
+  output: "standalone",  // the Docker runner stage copies .next/standalone
   turbopack: {},
   // Uploaded images are stored in markdown as /media/... — serve them from this origin.
   async rewrites() {

@@ -1,0 +1,25 @@
+# Development. Compose reads this automatically on top of docker-compose.yml:
+# bind-mounted source, reloading servers, and the dev server for the frontend.
+services:
+  django:
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             python manage.py runserver 0.0.0.0:8000"
+    volumes:
+      - .:/app
+      - media_data:/app/media
+
+  fastapi:
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8001 --reload --reload-exclude "/app/.venv"
+    volumes:
+      - .:/app
+      - media_data:/app/media
+
+  frontend:
+    build:
+      target: deps  # stop before the production build; the dev server compiles on demand
+    command: npm run dev
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
