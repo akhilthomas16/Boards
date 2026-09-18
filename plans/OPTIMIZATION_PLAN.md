@@ -1,9 +1,9 @@
 # Hash Out — Optimization & Completion Plan
 
 **Renamed** 2026-09-17 from *Boards* — the Django project package is now `hash_out/`; the `boards` app keeps its name (it holds boards, topics and posts).
-**Status:** Phases 0–3 ✅ merged (PR #5–#8). Phase 4 ✅ done on `feat/phase-4-three-services` — Elasticsearch and Celery are gone, `docker compose up` starts four services, search is one correct ORM path. **Next: Phase 5**, or straight to Phase 7 for a deployable v1.
+**Status:** Phases 0–4 ✅ merged (PR #5–#9). Phase 5 ✅ done on `feat/phase-5-server-components` — the board, topic, profile and search pages are server-rendered, list queries are flat, and the frontend types are generated from the API. **Next: Phase 6** (complete the product) or **Phase 7** (deploy).
 **Audit basis:** 8-dimension review of every tracked source file, 199 findings, each re-verified against the code by a second pass (25 corrected, 0 withdrawn). Spot-checked by hand where the stakes were highest.
-**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 4. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
+**Audited:** 2026-09-16 at `e8b0d45` · **Updated:** 2026-09-18 after Phase 5. Line numbers cite the audited commit; files touched in Phase 0 have shifted.
 
 ---
 
@@ -273,19 +273,41 @@ manage.py check · makemigrations --check · tsc --noEmit · docker compose conf
 
 ---
 
-## Phase 5 — One rendering model, one API contract (2–3 days)
+## Phase 5 — One rendering model, one API contract ✅ Done
 
-- **Three route pages are 100% client components** (`boards/[id]`, `topics/[id]`, `profile/[username]`) that ship a spinner as their HTML, double-fetch data their server `layout.tsx` already fetched, and call `useSearchParams()` with no `Suspense` boundary — which bails the whole route out of prerendering. Convert them to async server components reading `params`/`searchParams` with `next: { revalidate: 60 }`, mirroring `app/page.tsx:37-57`, and extract client islands (`<NewTopicForm boardId>`, `<ReplyForm topicId>`, `<ProfileEditForm>`). This conversion is also what fixes the dead pagination and the splice-into-current-page bugs structurally rather than one at a time.
-- **SSR-in-Docker:** server components fetch from *inside* the frontend container, where `NEXT_PUBLIC_API_URL=http://localhost:8001` (compose `:131`) points at the container's own loopback. Use the server-side `API_INTERNAL_URL` (added to compose in Phase 3 for the `/media` rewrite) for those fetches too.
-- **Fix the schemas before generating types**, or you generate the wrong ones: `api/schemas.py` has no `reactions`/`my_reactions` on posts and no `badges` on users, though the routers return all three. Then `npx openapi-typescript http://localhost:8001/openapi.json -o src/types/api.d.ts` into the **currently empty** `frontend/src/types/`, and replace the five hand-written interfaces that disagree with the backend.
-- Add `loading.tsx` and `error.tsx` per segment so a failed detail fetch does not escalate to the root `error.tsx` and blow away the whole page.
-- **Indexes** — there are none on any model, despite every hot query being filter+sort: `Topic ['board','-is_pinned','-last_updated']` and `['-views_count','-last_updated']`, `Post ['topic','created_at']`, `Notification ['recipient','is_read','-created_at']`.
-- **N+1s** (do these before the indexes; they cut more latency): `posts.py:60` → `select_related('created_by__profile','updated_by')` plus an annotated author post count (the profile badge lookup costs 3 queries *per post*); `boards.py:15-35` → one `annotate(Count('topics'), Count('topics__posts'), Max('topics__posts__created_at'))` instead of 3 queries per board; `topics.py:28` → annotate `Count('posts')` instead of a COUNT per row (20+ per list page). (The `ORDER BY RANDOM()` in `similar_topics` is already gone — `d439b4e`.)
-- `accounts/models.py:49-53` — the `save_user_profile` receiver writes `UserProfile` on **every** `User.save()`, including every password change. Delete it; `create_user_profile` already handles creation.
-- `notifications/models.py:29` opens a **new Redis connection per notification**. Use a module-level client.
-- Frontend hygiene while the files are open: `npm uninstall @ducanh2912/next-pwa tailwindcss @tailwindcss/postcss` (next-pwa is a webpack plugin and the build runs Turbopack, so `sw.js` can never regenerate; Tailwind is imported at `globals.css:1` and **not one utility class is used**), delete `postcss.config.mjs` and the `withPWA` wrapper, fix the five lint findings (bare `catch {}` in both layouts, `node` prop and `any` in `MarkdownRenderer`, duplicate `next/navigation` imports).
+**Completed 2026-09-18** on `feat/phase-5-server-components`.
 
-**Exit criteria:** `npm run build` reports those three routes as server-rendered; `grep -rn "'use client'" frontend/src/app/*/*/page.tsx` is empty; a seeded 50-topic board renders in a constant number of queries (assert with `assertNumQueries`).
+| Commit | What landed |
+|---|---|
+| `perf(api): flat list queries, indexes and complete list schemas` | **N+1s gone:** boards annotate `topics_total`/`posts_total`/`last_post_at` (one query for any number of boards), topics annotate `posts_total`, posts `select_related('created_by__profile','updated_by')` + `prefetch_related('reactions')` + an annotated `author_post_count` that `get_user_badges` now takes as an argument. The four `Board`/`Topic` helper methods behind the old per-row queries are deleted. **Indexes:** `Topic(board, -is_pinned, -last_updated)`, `Topic(-views_count, -last_updated)`, `Post(topic, created_at)`, `Notification(recipient, is_read, -created_at)` (migrations `boards.0006`, `notifications.0002`). **Schemas:** `UserBrief.badges`, `PostResponse.reactions`, and `BoardListResponse`/`TopicListResponse`/`PostListResponse` so every list endpoint has a `response_model`. **Also:** the `save_user_profile` receiver is gone (it rewrote the profile on every `User.save()`), and `notifications/models.py` publishes through one module-level Redis client. `api/tests/test_queries.py` |
+| `refactor(frontend): server-render the board, topic, profile and search pages` | Four route pages are now async server components reading `params`/`searchParams` and fetching through `lib/server-api.ts` (which uses `API_INTERNAL_URL` inside Docker). Client islands hold what needs state: `<NewTopicForm>`, `<Conversation>` (posts + reply box, because Quote Reply writes into the box) and `<ProfileCard>`; each calls `router.refresh()` after a write. `loading.tsx` + `error.tsx` per segment. `src/types/api.d.ts` is generated from the OpenAPI schema with `src/types/index.ts` naming the aliases; the six hand-written interfaces are gone |
+| `chore(frontend): drop tailwind, next-pwa and the postcss config` | `@ducanh2912/next-pwa` (a webpack plugin the Turbopack build can never run), `tailwindcss` + `@tailwindcss/postcss` (imported, zero utility classes used), `postcss.config.mjs`, the `withPWA` wrapper and the `@import "tailwindcss"` line |
+
+### Where it departed from the original plan
+
+- **Detail pages are not cached.** The plan said `next: { revalidate: 60 }` everywhere, mirroring the home page. Caught in the browser: a cached fetch survives `router.refresh()`, so a just-posted topic or reply stayed invisible for up to a minute. `fetchApi` now defaults to no caching; the home board list, trending and "similar topics" pass `60` explicitly.
+- **The search page was converted too** (not in the plan). It was the last client page fetching in an effect, and it was the only remaining ESLint error. Its form is a plain GET, so it needed no client code at all.
+- **Aggregation silently drops `Meta.ordering`.** Adding `annotate(Count(...))` removed the `ORDER BY` from all three list queries — the topic list came back oldest-first until `_topics()`, `_boards()` and `_posts()` re-applied `order_by(*Model._meta.ordering)` explicitly. The query tests now assert order as well as query count.
+- **`Count(..., distinct=True)` on the board annotations**, or the two joins multiply each other's rows and every count is wrong. Asserted in the tests.
+- **`api/tests/test_queries.py` calls the router functions directly** rather than going through `TestClient`: query capture is per-connection, and `TestClient` runs handlers in worker threads. Each test compares a small seed against a large one, so a per-row query fails the test without hard-coding a magic number.
+- **Auth pages stay client components.** The exit criterion's glob (`app/*/*/page.tsx`) also matches `auth/login`, `auth/signup` and `auth/forgot-password`; they are forms with no server data, so they keep `'use client'`.
+
+### Exit criteria
+
+```
+npm run build: /boards/[id], /topics/[id], /profile/[username], /search   ✅ ƒ (server-rendered on demand)
+'use client' in the four converted route pages                            ✅ none
+list endpoints cost the same queries at 5 rows and 50                     ✅ boards ≤3, topics ≤4, posts ≤5, trending ≤2
+mutation check: ordering ×3, board count distinct, post N+1, topic N+1,
+  profile receiver                                                        ✅ 7/7 caught
+pytest                                                                    ✅ 64 passed
+eslint                                                                    ✅ 0 errors (was 2), 3 warnings (was 9)
+headless Chrome: board/topic/search/profile HTML arrives rendered, ?page=2 differs
+  in the HTML, new topic and reply appear via router.refresh() and in the next
+  server render, quote keeps line breaks, profile edit + avatar persist,
+  a missing topic hits the segment error boundary with the navbar intact   ✅
+manage.py check · makemigrations --check · tsc --noEmit · docker compose config   ✅
+```
 
 ---
 
@@ -298,9 +320,9 @@ Every item here is capability that exists on one side of the boundary and nowher
 | **Moderation** | `is_pinned`, `is_locked` fields; `PROTECT` FKs | No endpoint writes them. Add staff-gated `PATCH /api/topics/{id}` + `DELETE` (delete must cascade posts explicitly — FKs are `PROTECT`), plus a staff action row in the UI |
 | **Post edit/delete** | `posts.py:145-183`, author-or-staff enforced | Zero UI. Pass `currentUserId`/`isStaff` into `PostCard`, wire `api.patch`/`api.delete` |
 | **@mentions** | Full autocomplete in `MarkdownEditor.tsx:37-54` | The write path never parses mentions, so they notify nobody. Also `:83` strips the `@` (off-by-one on `cursor - match[1].length`) |
-| **Reactions** | `Reaction` model, POST endpoint, counts | The API never says which reactions are *yours*, forcing a `-2` count hack in `PostCard.tsx:28`. Return `my_reactions: list[str]` (needs a real optional-auth dependency — see below) |
+| **Reactions** | `Reaction` model, POST endpoint, counts (now in `PostResponse`) | The API never says which reactions are *yours*, forcing a `-2` count hack in `PostCard`. Return `my_reactions: list[str]` (needs a real optional-auth dependency — see below) |
 | **Notifications** | Model, list, mark-one-read, WS delivery | No unread-count, no mark-all (the client loops one request per notification at `WebSocketProvider.tsx:86-88`), no delete, no pagination, no `/notifications` page |
-| **Search UI** | API supports `type` + pagination | `search/page.tsx:36` sends neither. Add type tabs and `<Pagination>` |
+| **Search UI** | API supports `type` + pagination and returns per-type `counts`; the page is a server component reading `searchParams` | It still sends only `q`. Add type tabs and `<Pagination>` — both are links now, no client code needed |
 | **Settings page** | `/api/profiles/me` and `POST /api/auth/change-password` | No page (the dead Navbar link was removed in Phase 3). Build `app/settings/page.tsx` and link it from the user menu again |
 | **Email verification** | Nothing | Accounts are live on first POST. Either add it (`is_active=False` + `verify:{email}` code + `POST /api/auth/verify-email`) or decide explicitly not to and document it |
 | **Profile display** | `reputation_score`, `badges` returned | Never rendered |
@@ -366,21 +388,21 @@ Phase 1  1-2 d one UI stack          ✅ done 2026-09-17
 Phase 2  2-3 d auth + is_active      ✅ done 2026-09-17
 Phase 3  1-2 d visible bug sweep     ✅ done 2026-09-17
 Phase 4  1-2 d 6 services → 3        ✅ done 2026-09-18
-Phase 5  2-3 d server components + contract + perf
+Phase 5  2-3 d server components      ✅ done 2026-09-18
 Phase 6  3-5 d complete the product
 Phase 7  2-3 d production + CI
                                      ≈ 3 weeks solo to a deployable, complete v1
 ```
 
-**Want a v1 deployed now?** Phase 7 alone (skip 5 and 6) gets a working, honest forum deployed in ~2–3 days with search, uploads, notifications and `/admin/` moderation. Then 5–6 after.
+**Want a v1 deployed now?** Phase 7 alone (skip 6) gets a working, honest forum deployed in ~2–3 days with search, uploads, notifications and `/admin/` moderation. Then 6 after.
 
 **Hard ordering constraints**
 1. ~~Phase 0 before anything — the API does not import, so nothing else is verifiable.~~ ✅ Satisfied.
 2. ~~Password validation + change-password endpoint + replacement tests before deleting the Django UI.~~ ✅ Satisfied in Phase 1.
 3. ~~`api/__init__.py` truncation before any Celery/tasks work — importing `api.tasks` otherwise drags in a second `django.setup()`.~~ ✅ Satisfied (`b97e10c`).
 4. ~~Fix `migration 0003` before any deployment has more than one board.~~ ✅ Satisfied in Phase 3.
-5. Fix `api/schemas.py` before generating TypeScript types.
-6. Fix the N+1 queries before adding indexes — they cut far more latency, and the indexes are easier to pick once the query shapes are final.
+5. ~~Fix `api/schemas.py` before generating TypeScript types.~~ ✅ Satisfied in Phase 5.
+6. ~~Fix the N+1 queries before adding indexes.~~ ✅ Satisfied in Phase 5 (both in one commit; the shapes were settled first).
 7. ~~Client-fetch consolidation before the httpOnly-cookie switch.~~ ✅ Satisfied in Phase 2.
 8. ~~`CREATEDB` on `boards_user` before Phase 1's replacement tests.~~ ✅ Satisfied.
 

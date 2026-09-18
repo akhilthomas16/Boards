@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
-import { API_BASE } from '@/lib/api';
+import { fetchApi } from '@/lib/server-api';
+import type { Board } from '@/types';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -8,16 +9,14 @@ interface LayoutProps {
 
 export async function generateMetadata(props: LayoutProps): Promise<Metadata> {
     try {
-        const resolvedParams = await props.params;
-        const res = await fetch(`${API_BASE}/api/boards/${resolvedParams.id}`);
-        if (!res.ok) return { title: 'Board Not Found - Hash Out' };
-        const board = await res.json();
+        const { id } = await props.params;
+        const board = await fetchApi<Board>(`/api/boards/${id}`);
         return {
             title: `${board.name} - Hash Out`,
             description: board.description,
         };
-    } catch (err) {
-        return { title: 'Hash Out' };
+    } catch {
+        return { title: 'Board Not Found - Hash Out' };
     }
 }
 

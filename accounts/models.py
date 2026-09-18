@@ -45,9 +45,5 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         UserProfile.objects.create(user=instance)
 
-
-@receiver(post_save, sender=User)
-def save_user_profile(sender, instance, **kwargs):
-    """Auto-save profile when user is saved."""
-    if hasattr(instance, 'profile'):
-        instance.profile.save()
+# ponytail: no save_user_profile receiver — it wrote the profile on every User.save(),
+# including every password change. create_user_profile above is all that's needed.

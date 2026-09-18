@@ -1,5 +1,6 @@
 import { Metadata } from 'next';
-import { API_BASE } from '@/lib/api';
+import { fetchApi } from '@/lib/server-api';
+import type { Topic } from '@/types';
 
 interface LayoutProps {
     children: React.ReactNode;
@@ -8,16 +9,14 @@ interface LayoutProps {
 
 export async function generateMetadata(props: LayoutProps): Promise<Metadata> {
     try {
-        const resolvedParams = await props.params;
-        const res = await fetch(`${API_BASE}/api/topics/${resolvedParams.id}`);
-        if (!res.ok) return { title: 'Topic Not Found - Hash Out' };
-        const topic = await res.json();
+        const { id } = await props.params;
+        const topic = await fetchApi<Topic>(`/api/topics/${id}`);
         return {
             title: `${topic.subject} - Hash Out`,
             description: `Discussion started by ${topic.starter.username} in ${topic.board_name}`,
         };
-    } catch (err) {
-        return { title: 'Hash Out' };
+    } catch {
+        return { title: 'Topic Not Found - Hash Out' };
     }
 }
 

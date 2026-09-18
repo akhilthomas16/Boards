@@ -6,12 +6,12 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
-from django.db.models import F
+from django.db.models import Count, F
 from django.db.models.functions import Greatest
 
 from boards.models import Topic, Post
 from ..auth import get_current_user
-from ..schemas import PostCreate, PostUpdate, PostResponse, UserBrief
+from ..schemas import PostCreate, PostListResponse, PostUpdate, PostResponse, UserBrief
 from pydantic import BaseModel
 from ..deps import paginate
 from .profiles import get_user_badges
@@ -19,13 +19,21 @@ from .profiles import get_user_badges
 router = APIRouter()
 
 
+def _posts(topic_id: int) -> "QuerySet[Post]":
+    """Everything _post_to_response needs, without a query per post.
+
+    order_by is explicit because aggregation drops Meta.ordering.
+    """
+    return (Post.objects.filter(topic_id=topic_id)
+            .select_related("created_by__profile", "updated_by")
+            .prefetch_related("reactions")
+            .annotate(author_post_count=Count("created_by__posts", distinct=True))
+            .order_by(*Post._meta.ordering))
+
+
 def _post_to_response(post):
-    # Aggregate reactions safely
     reactions = {}
-    
-    # We ideally would use `post.reactions.all()` if prefetched, otherwise count manually or by grouping wrapper. 
-    # For performance, this would usually be annotated locally on QS, doing straightforward iter for now:
-    for reaction in getattr(post, 'reactions_all', post.reactions.all()):
+    for reaction in post.reactions.all():  # prefetched by _posts
         reactions[reaction.emoji] = reactions.get(reaction.emoji, 0) + 1
 
     return {
@@ -35,7 +43,7 @@ def _post_to_response(post):
         "created_by": {
             "id": post.created_by.id, 
             "username": post.created_by.username,
-            "badges": get_user_badges(post.created_by.profile)
+            "badges": get_user_badges(post.created_by.profile, getattr(post, "author_post_count", None))
         },
         "updated_by": (
             {"id": post.updated_by.id, "username": post.updated_by.username}
@@ -47,7 +55,7 @@ def _post_to_response(post):
     }
 
 
-@router.get("/topic/{topic_id}")
+@router.get("/topic/{topic_id}", response_model=PostListResponse)
 def list_posts(
     topic_id: int,
     page: int = Query(1, ge=1),
@@ -59,8 +67,7 @@ def list_posts(
     except Topic.DoesNotExist:
         raise HTTPException(status_code=404, detail="Topic not found")
 
-    qs = Post.objects.filter(topic=topic).select_related('created_by', 'updated_by').prefetch_related('reactions')
-    paged = paginate(qs, page, page_size)
+    paged = paginate(_posts(topic.id), page, page_size)
     paged["results"] = [_post_to_response(p) for p in paged["results"]]
     return paged
 

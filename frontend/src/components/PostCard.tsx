@@ -4,17 +4,18 @@
 import MarkdownRenderer from './MarkdownRenderer';
 import { useState } from 'react';
 import api from '@/lib/api';
+import type { Post } from '@/types';
 import { useAuth } from '@/lib/auth';
 
 interface PostCardProps {
     id: number;
     message: string;
-    createdBy: { id: number; username: string; badges?: string[] };
+    createdBy: Post['created_by'];
     createdAt: string;
     updatedAt?: string | null;
     isFirst?: boolean;
     onQuote?: (text: string) => void;
-    initialReactions?: Record<string, number>;
+    initialReactions?: Post['reactions'];
 }
 
 export default function PostCard({

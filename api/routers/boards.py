@@ -3,33 +3,49 @@ Board API endpoints — list, retrieve, create, update, delete boards.
 """
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from django.contrib.auth.models import User
+from django.db.models import Count, Max
 
 from boards.models import Board
 from ..auth import get_current_user
-from ..schemas import BoardCreate, BoardUpdate, BoardResponse
+from ..schemas import BoardCreate, BoardUpdate, BoardListResponse, BoardResponse
 from ..deps import paginate
 
 router = APIRouter()
 
 
+def _boards() -> "QuerySet[Board]":
+    """Counts and last-post time as annotations: one query for any number of boards.
+
+    order_by is explicit because aggregation drops Meta.ordering.
+    """
+    return Board.objects.annotate(
+        topics_total=Count("topics", distinct=True),
+        posts_total=Count("topics__posts", distinct=True),
+        last_post_at=Max("topics__posts__created_at"),
+    ).order_by(*Board._meta.ordering)
+
+
 def _board_to_response(board: Board) -> dict:
-    """Convert a Board model to response dict."""
-    last_post = board.get_last_post()
+    """Convert an annotated Board (see _boards) to a response dict."""
     return {
         "id": board.id,
         "name": board.name,
         "slug": board.slug,
         "description": board.description,
-        "posts_count": board.get_posts_count(),
-        "topics_count": board.topics.count(),
-        "last_post_at": last_post.created_at if last_post else None,
+        "posts_count": board.posts_total,
+        "topics_count": board.topics_total,
+        "last_post_at": board.last_post_at,
     }
 
 
-@router.get("/")
+def _board_response(pk: int) -> dict:
+    return _board_to_response(_boards().get(pk=pk))
+
+
+@router.get("/", response_model=BoardListResponse)
 def list_boards(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100)):
     """List all boards with pagination."""
-    qs = Board.objects.all()
+    qs = _boards()
     paged = paginate(qs, page, page_size)
     paged["results"] = [_board_to_response(b) for b in paged["results"]]
     return paged
@@ -39,7 +55,7 @@ def list_boards(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=
 def get_board(board_id: int):
     """Get a single board by ID."""
     try:
-        board = Board.objects.get(pk=board_id)
+        board = _boards().get(pk=board_id)
     except Board.DoesNotExist:
         raise HTTPException(status_code=404, detail="Board not found")
     return _board_to_response(board)
@@ -49,7 +65,7 @@ def get_board(board_id: int):
 def get_board_by_slug(slug: str):
     """Get a single board by slug."""
     try:
-        board = Board.objects.get(slug=slug)
+        board = _boards().get(slug=slug)
     except Board.DoesNotExist:
         raise HTTPException(status_code=404, detail="Board not found")
     return _board_to_response(board)
