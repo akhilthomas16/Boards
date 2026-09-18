@@ -4,8 +4,8 @@
  */
 import { Suspense } from 'react';
 import Link from 'next/link';
-import AdBanner from '@/components/AdBanner';
 import Conversation from '@/components/Conversation';
+import TopicModeration from '@/components/TopicModeration';
 import Pagination from '@/components/Pagination';
 import { fetchApi, fetchApiOr } from '@/lib/server-api';
 import type { PostList, Topic } from '@/types';
@@ -47,6 +47,13 @@ export default async function TopicPage(props: {
                         </div>
                     </div>
 
+                    <TopicModeration
+                        topicId={topic.id}
+                        boardId={topic.board_id}
+                        isPinned={topic.is_pinned}
+                        isLocked={topic.is_locked}
+                    />
+
                     <Conversation topicId={topic.id} isLocked={topic.is_locked} posts={posts.results} />
 
                     <Suspense>
@@ -85,10 +92,6 @@ export default async function TopicPage(props: {
                             <div>Replies: <strong>{topic.replies_count}</strong></div>
                         </div>
                     </div>
-                    <AdBanner
-                        slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_SIDEBAR || 'sidebar'}
-                        className="ad-sidebar"
-                    />
                 </aside>
             </div>
         </div>

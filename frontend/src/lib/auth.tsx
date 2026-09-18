@@ -39,9 +39,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(user);
     };
 
+    // Signup no longer logs you in: the account needs its emailed code first.
     const signup = async (username: string, email: string, password: string) => {
         await api.post('/api/auth/signup', { username, email, password });
-        await login(username, password);
     };
 
     const logout = async () => {

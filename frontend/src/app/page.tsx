@@ -2,7 +2,6 @@
  * Home page — Board listing with premium glassmorphic cards (SSR).
  */
 import BoardCard from '@/components/BoardCard';
-import AdBanner from '@/components/AdBanner';
 import Pagination from '@/components/Pagination';
 import Link from 'next/link';
 import { fetchApi, fetchApiOr } from '@/lib/server-api';
@@ -42,10 +41,6 @@ export default async function HomePage(props: {
             </p>
           </div>
 
-          <AdBanner
-            slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_BANNER || 'banner'}
-            className="ad-banner-top"
-          />
 
           {error ? (
             <div className="alert alert-error">{error}</div>
@@ -112,10 +107,6 @@ export default async function HomePage(props: {
             </div>
           )}
 
-          <AdBanner
-            slot={process.env.NEXT_PUBLIC_ADSENSE_SLOT_SIDEBAR || 'sidebar'}
-            className="ad-sidebar"
-          />
         </aside>
       </div>
     </div>
